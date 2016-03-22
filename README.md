@@ -8,10 +8,10 @@ Don't Starve implementation planned in future builds.
 Java was chosen as it is compiled, OS independent, object oriented, with lots of library support and good parallelization options. Along with long term compatablity, detailed code management, the reasons are endless.
 
 ## Goals
-To create a human-like intelligence in Minecraft
+To create a human-like intelligence in Minecraft with only one goal, and one sub-goal:
 
 1. Survive
-2. Fourish
+ a. Fourish
  
 In the spirit of these goals, here are some higher level design challenges:
 Autonomous Building and Navigation
