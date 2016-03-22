@@ -1,4 +1,4 @@
-# MinecraftAI
+# SurvivalAI
 A Java/Scala based AI written for Minetest.
 
 Uses LuaJ and Java Native Interface to control Minetest.
