@@ -9,4 +9,4 @@ Java was chosen as it is compiled, OS independent, object oriented, with lots of
 
 ## Libraries
 1. Log4j
-3. JGraphT
+2. JGraphT
