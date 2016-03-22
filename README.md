@@ -11,6 +11,7 @@ Java was chosen as it is compiled, OS independent, object oriented, with lots of
 To create a human-like intelligence in Minecraft with only one goal, and one sub-goal:
 
 1. Survive
+
  a. Fourish
  
 In the spirit of these goals, here are some higher level design challenges:
