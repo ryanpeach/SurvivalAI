@@ -7,7 +7,6 @@ Minecraft, and Don't Starve implementation planned in future builds.
 
 Java was chosen as it is compiled, OS independent, object oriented, with lots of library support and good parallelization options. Along with long term compatablity, detailed code management, the reasons are endless.
 
-# Libraries
-Log4j
-OpenNLP
-JGraphT
+## Libraries
+1. Log4j
+3. JGraphT
