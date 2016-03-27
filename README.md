@@ -1,11 +1,11 @@
 # SurvivalAI
-A Java/Scala based AI written for Minetest and Minecraft Project AIX.
+A Python based AI written for Minetest and Minecraft Project AIX.
 
-Uses LuaJ and Java Native Interface to control Minetest. Java to control Project AIX.
+Uses Minetest server/client to control Minetest and Minecraft AIX.
 
 Don't Starve implementation planned in future builds.
 
-Java was chosen as it is compiled, OS independent, object oriented, with lots of library support and good parallelization options. Along with long term compatablity, detailed code management, the reasons are endless.
+Python was chosen as it is the machine learning research language of choice.
 
 ## Goals
 To create a human-like intelligence in Minecraft with only one goal, and one sub-goal:
@@ -24,6 +24,9 @@ Computational Creativity
 Intelligent managing of Time and Resources.
 Reinforcement learning.
 
-## Libraries
-1. Log4j
-2. JGraphT
+## Specs & Libraries
+Python 3
+Numpy
+SciPy
+Pandas
+TensorFlow
