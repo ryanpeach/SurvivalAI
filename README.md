@@ -1,20 +1,27 @@
 # SurvivalAI
-A Python based AI written for Minetest and Minecraft Project AIX.
 
-Uses Minetest server/client to control Minetest and Minecraft AIX.
+A Python based AI written for Minecraft.
 
 Don't Starve implementation planned in future builds.
 
 Python was chosen as it is the machine learning research language of choice.
 
 ## Goals
-To create a human-like intelligence in Minecraft with only one goal, and one sub-goal:
+
+To create a human-like intelligence in Minecraft with just two fundamental goals:
 
 1. Survive
+2. Fourish
 
- a. Fourish
- 
+### Roadmap
+
 In the spirit of these goals, here are some higher level design challenges:
+
+1. Create an agent that can create shelter without a design
+2. Create an agent that can explore and retrieve resources without direction
+
+### Future Roadmap
+
 Autonomous Building and Navigation
 Goal Generation, Planning.
 Emotive States for intrinsic motivation.
@@ -25,9 +32,15 @@ Intelligent managing of Time and Resources.
 Reinforcement learning.
 
 ## Specs & Libraries
-Python 3
-Numpy
-SciPy
-Pandas
-TensorFlow
-Cython
+
+* General
+  * Python 3
+  * Numpy
+  * SciPy
+  * Cython
+
+* Advanced
+  * OpenCog
+  * ROS
+  * SpockBot
+  * TensorFlow
