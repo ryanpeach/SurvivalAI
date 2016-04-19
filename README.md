@@ -30,3 +30,4 @@ Numpy
 SciPy
 Pandas
 TensorFlow
+Cython
