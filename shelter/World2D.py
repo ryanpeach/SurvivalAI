@@ -1,17 +1,18 @@
 import numpy as np
 
 # Define shape labels
-KEY = {'space': 1, 'wall': 2, 'parti': 3, 'torch': 4}
+KEY = {'space': 1, 'wall': 2, 'parti': 3, 'torch': 4, 'door': 5, 'bedrock': 6}
 
-space, wall  = KEY['space'], KEY['wall']
-parti, torch = KEY['parti'], KEY['torch']
+not_removable = [KEY['space'], KEY['bedrock']]
+not_passable  = [KEY['wall'] , KEY['bedrock']]
+enemy_not_passable = [KEY['wall'], KEY['door'], KEY['bedrock']]
 
 def generate_light(W, d_l = 2):
     """ Creates a light vector """
     # FIXME: Light shouldn't go through walls
     # FIXME: Light should follow inverse square law
     L = np.zeros(W.shape)
-    sources = np.where(W == torch)
+    sources = np.where(W == KEY['torch'])
     for y_i, x_i in np.vstack(sources).T:
         #y_i, x_i = l_i
         y_u, x_l, y_d, x_r = (y_i - d_l), (x_i - d_l), (y_i + d_l), (x_i + d_l)
@@ -19,7 +20,7 @@ def generate_light(W, d_l = 2):
         if x_l < 0: x_l = 0
         if y_d >= W.shape[0]: y_d = W.shape[0]
         if x_r >= W.shape[1]: x_r = W.shape[1]
-        L[y_u:y_d,x_l:x_r] = np.ones((d_l*2,d_l*2))
+        L[y_u:y_d,x_l:x_r] = np.ones((d_l*2,d_l*2))                             # Create a light array at distance d_l from center of torch
         
     return L
 
@@ -35,9 +36,9 @@ def generate_particles(W, L, Np=10):
         while not complete:
             x_i = np.random.randint(0,W.shape[0])
             y_i = np.random.randint(0,W.shape[0])
-            complete = L[y_i,x_i] != 1      # We are done when the location given is not lit
+            complete = L[y_i,x_i] != 1 and W[y_i,x_i] not in enemy_not_passable # We are done when the location given is not lit
         
-        P[y_i,x_i] = parti  # Place a particle here
+        P[y_i,x_i] = KEY['parti']  # Place a particle here
     
     return P
     
@@ -46,20 +47,22 @@ def run_simulation(P):
         Parameter: P - Particle Matrix.
         Return: Score Matrix """
     #FIXME: This would be faster in Cython
-
+    p = KEY['parti']
+    
     # Create a vectorized solution
-    run = np.vectorize(lambda x, u, r, l, d: parti if x != wall and parti in [x,l,r,u,d] else x)
+    run = np.vectorize(lambda x, u, r, l, d: p if x not in enemy_not_passable \
+                                                   and p in [x,l,r,u,d] else x)
     
     # Run untill there is no change
     S = P.copy()
-    count, new_count = np.sum(S == parti), 0
+    count, new_count = np.sum(S == p), 0
     while count != new_count:
         # Replace count with new_count
         count = new_count
         
         # Create neighbor matricies
         i, j = S.shape
-        padded = np.full((i+1,j+1),parti)
+        padded = np.full((i+1,j+1), p)
         padded[0:i,0:j] = S
     
         u = np.roll(padded,1,axis=0)[0:i,0:j]
@@ -71,7 +74,7 @@ def run_simulation(P):
         S = run(S,u,r,l,d)
         
         # Get a new count to compare
-        new_count = np.sum(S == parti)
+        new_count = np.sum(S == p)
         
         # Log it
         print(count, new_count)
@@ -79,13 +82,12 @@ def run_simulation(P):
     return S
     
 def scoreWorld(W, S):
-    # Generate count of unique items
-    Nwalls = np.sum(W == wall)
-    Nsludge = np.sum(S == parti)
-    
+    # Generate count of particles and impassables
     # The score is the "free-space" that remains
-    # FIXME: This can be generalized
-    return Nsludge + Nwalls
+    # FIXME: This can be sped up with Cython
+    scored = (enemy_not_passable + KEY['parti'])
+    count = np.sum( W not in scored )
+    return W.size - count
     
 # Define module tests
 if __name__=="__main__":
