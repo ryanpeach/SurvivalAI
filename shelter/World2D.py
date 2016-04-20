@@ -1,5 +1,11 @@
 import numpy as np
 
+# Define shape labels
+KEY = {'space': 1, 'wall': 2, 'parti': 3, 'torch': 4}
+
+space, wall  = KEY['space'], KEY['wall']
+parti, torch = KEY['parti'], KEY['torch']
+
 def generate_light(W, d_l = 2):
     """ Creates a light vector """
     # FIXME: Light shouldn't go through walls
@@ -72,7 +78,7 @@ def run_simulation(P):
         
     return S
     
-def score(W, S):
+def scoreWorld(W, S):
     # Generate count of unique items
     Nwalls = np.sum(W == wall)
     Nsludge = np.sum(S == parti)
@@ -81,10 +87,8 @@ def score(W, S):
     # FIXME: This can be generalized
     return Nsludge + Nwalls
     
+# Define module tests
 if __name__=="__main__":
-    # Define shape labels
-    space, wall, parti, torch = 1, 2, 3, 4
-    
     # Create World
     Ny, Nx = 100, 100
     W = np.full((Ny,Nx), space)    # This is our world
@@ -103,4 +107,4 @@ if __name__=="__main__":
     L = generate_light(W, d_l = 2)
     P = generate_particles(W, L, Np=10)
     S = run_simulation(P)
-    print(score(W,S))
+    print(scoreWorld(W,S))
