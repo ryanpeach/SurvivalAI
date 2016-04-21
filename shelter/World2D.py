@@ -85,21 +85,21 @@ def scoreWorld(W, S):
     # Generate count of particles and impassables
     # The score is the "free-space" that remains
     # FIXME: This can be sped up with Cython
-    scored = (enemy_not_passable + KEY['parti'])
-    count = np.sum( W not in scored )
+    scored = enemy_not_passable + [KEY['parti']]
+    count = np.sum( np.vectorize(lambda x: x in scored)(S) )
     return W.size - count
     
 # Define module tests
 if __name__=="__main__":
     # Create World
-    Ny, Nx = 100, 100
-    W = np.full((Ny,Nx), space)    # This is our world
+    Ny, Nx = 10, 10
+    W = np.full((Ny,Nx), KEY['space'])    # This is our world
     
     # Create a basic house
-    H = [[wall,wall,wall,wall],
-         [wall,torch,space,wall],
-         [wall,torch,space,wall],
-         [wall,wall,wall,wall]]
+    H = [[KEY['wall'],KEY['wall'], KEY['wall'], KEY['wall']],
+         [KEY['wall'],KEY['space'],KEY['space'],KEY['wall']],
+         [KEY['wall'],KEY['torch'],KEY['space'],KEY['wall']],
+         [KEY['wall'],KEY['wall'], KEY['wall'], KEY['wall']]]
     H = np.array(H)
     
     # Place the house in the world
