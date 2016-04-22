@@ -117,7 +117,7 @@ def run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = 
     return S
     
 tried = set()
-def scoreWorld(W, S, C):
+def scoreWorld(W, S, C, safety_weight = 1000, freedom_weight = 1):
     # Generate count of particles and impassables
     # The score is the "free-space" that remains
     # FIXME: This can be sped up with Cython
@@ -132,7 +132,7 @@ def scoreWorld(W, S, C):
         C = np.vectorize(lambda x: x in scored)(C)
         
         safe = np.logical_and(C,np.logical_not(S))
-        return np.sum(safe)+.01*np.sum(C)
+        return safety_weight*np.sum(safe)+freedom_weight*np.sum(C)
     else:
         tried.add(str(W))
         return -10

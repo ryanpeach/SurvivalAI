@@ -3,6 +3,9 @@ import numpy as np
 from World2D import *
 
 class Player2D(object):
+    SAFETY_WEIGHT = 1000
+    FREEDOM_WEIGHT = 1
+    
     def __init__(self, world, start_loc, inv, realtime = True):
         self.Ny, self.Nx = world.shape
         self.W = world
@@ -31,15 +34,14 @@ class Player2D(object):
         place_down  = lambda: self._place(0,1)
         place_left  = lambda: self._place(-1,0)
         place_right = lambda: self._place(1,0)
-        test_score  = self._score
 
         # Create action lookup
         self.action_list = [move_up, move_left, move_right, move_down, sel_wall,
                             sel_torch, sel_door, sel_space, place_up, place_down,
-                            place_right, place_left, test_score]
+                            place_right, place_left]
         self.action_key  = ['move_up', 'move_left', 'move_right', 'move_down', 'sel_wall',
                             'sel_torch', 'sel_door', 'sel_space', 'place_up', 'place_down',
-                            'place_right', 'place_left', 'test_score']
+                            'place_right', 'place_left']
         self.action_key  = dict(zip(self.action_key, self.action_list))
         self.Na = len(self.action_list)
         
@@ -84,16 +86,6 @@ class Player2D(object):
                     return True                                                 # Return success
 
         return False                                                            # Otherwise, return failure
-        
-    def _score(self):
-        L = generate_light(self.W, d_l = 2)
-        P = generate_particles(self.W, L, Np=100)
-        S = run_simulation(P)   # Run simulation on the particles
-        
-        D = self.W.copy()
-        D[self.Loc] = -1
-        C = run_simulation(D, p = -1, impassable = not_passable)
-        return scoreWorld(self.W, S, C)
         
     def _display(self, name):
         D = self.W.copy()

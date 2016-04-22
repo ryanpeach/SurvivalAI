@@ -14,7 +14,7 @@ def hotone(index, L):
     out[index] = 1
     return out
 
-def in_layer(Nx = 80, Ny = 80, Ch = 1, Na = 13):
+def in_layer(Nx = 80, Ny = 80, Ch = 1):
     # Input and output classes
     x = tf.placeholder("float", shape=[None,Nx,Ny,Ch])
     
@@ -22,7 +22,7 @@ def in_layer(Nx = 80, Ny = 80, Ch = 1, Na = 13):
     
     return input_layer
 
-def visualNetwork2D(x, Nx = 12, Ny = 12, Ch = 1, Na = 13, 
+def visualNetwork2D(x, Nx = 12, Ny = 12, Ch = 1, Na = 12, 
                         c1s = 3, c1f = 32, c2s = 2, c2f = 64, m1s = 2, m2s = 2):
     """ Returns a shape of 1600, given [None, 80, 80, 1] """
     assert(Nx/m1s == int(Nx/m1s) and (Nx/m1s/m2s == int(Nx/m1s/m2s)))
@@ -44,7 +44,7 @@ def visualNetwork2D(x, Nx = 12, Ny = 12, Ch = 1, Na = 13,
     
     return tf.reshape(max2, [-1, int((Nx/m1s/m2s)*(Ny/m1s/m2s)*c2f)]) # Layer shape [None, 5, 5, 64] 1600 Total
     
-def ffNetwork(x, No = 512, Na = 13):
+def ffNetwork(x, No = 512, Na = 12):
     """ Copied from http://www.danielslater.net/2016/03/deep-q-learning-pong-with-tensorflow.html, making modifications"""
     ff_w_1 = tf.Variable(tf.truncated_normal([x.get_shape().as_list()[1], No], stddev=0.01))
     ff_b_1 = tf.Variable(tf.constant(0.01, shape=[No]))
@@ -71,7 +71,9 @@ class QPlayer2D(Player2D):
     """ My own version of the class """
     PERFORMACE_COST = -1
     FAILURE_COST    = -2
-    EXPLORE_STEPS   = 1e5
+    EXPLORE_STEPS   = 1e6
+    SAFETY_WEIGHT = 1000
+    FREEDOM_WEIGHT = 1
 
     def __init__(self, world, start_loc, inv, Nt = 1, Nz = 1, 
                        learn_rate = .9, path = './nn/', realtime = True):
@@ -82,14 +84,13 @@ class QPlayer2D(Player2D):
         self.Ch = Nt*Nz
         self.T = 0
         self.best_sc = -100000
+        self.working_memory = np.ones([self.Nx,self.Ny,Nt])
+        self.update_working_memory()
         
         self._session = tf.Session()
         self._x, self._y = self._create_network()
         
-        self.reward_list = [lambda: 0, lambda: 0, lambda: 0, lambda: 0,
-                            lambda: 0, lambda: 0, lambda: 0, lambda: 0,
-                            lambda: 0, lambda: 0, lambda: 0, lambda: 0,
-                            lambda: self._score()]
+        self.reward_list = [self._score]
                             
         self._action = tf.placeholder("float", [None, self.Na])
         self._target = tf.placeholder("float", [None])
@@ -109,12 +110,26 @@ class QPlayer2D(Player2D):
         if load_data and load_data.model_checkpoint_path:
             self._saver.restore(self._session, load_data.model_checkpoint_path)
             print("Loaded checkpoints %s" % load_data.model_checkpoint_path)
-                        
+    
+    def _score(self):
+        L = generate_light(self.W, d_l = 2)
+        P = generate_particles(self.W, L, Np=100)
+        S = run_simulation(P)   # Run simulation on the particles
+        
+        D = self.W.copy()
+        D[self.Loc] = -1
+        C = run_simulation(D, p = -1, impassable = not_passable, fill = KEY['space'])
+        return scoreWorld(self.W, S, C, self.SAFETY_WEIGHT, self.FREEDOM_WEIGHT)
+        
+    def update_working_memory(self):
+        self.working_memory = np.roll(self.working_memory, 1, axis=2)
+        self.working_memory[:,:,0] = self.W
+        
     def _create_network(self):
-        input_layer = in_layer(Nx = self.Nx, Ny = self.Ny, Ch = self.Ch, Na = self.Na)
+        input_layer = in_layer(Nx = self.Nx, Ny = self.Ny, Ch = self.Ch)
         conv = visualNetwork2D(input_layer, Nx = self.Nx, Ny = self.Ny, Ch = self.Ch, Na = self.Na, 
                         c1s = 3, c1f = 32, c2s = 2, c2f = 64, m1s = 2, m2s = 2)
-        output_layer = tf.nn.softmax(ffNetwork(conv, No = 512, Na = 13))
+        output_layer = tf.nn.softmax(ffNetwork(conv, No = 512, Na = self.Na))
         
         return input_layer, output_layer
         
@@ -123,7 +138,7 @@ class QPlayer2D(Player2D):
         self.T += 1
         succ = self.action_list[action_index]()
         if succ:
-            reward = self.reward_list[action_index]()
+            reward = self.reward_list[0]()
             if reward > self.best_sc:
                 print("Best Score: {0}".format(reward))
                 print("Time: {0}".format(self.T))
@@ -135,8 +150,11 @@ class QPlayer2D(Player2D):
         
     def action_randomize(self, action_index):
         # Set our confidence linearly from .1 to .9
-        m, b = .8/self.EXPLORE_STEPS, .1
-        conf = m*self.T + b
+        if self.training:
+            m, b = .8/self.EXPLORE_STEPS, .1
+            conf = m*self.T + b
+        else:
+            conf = 0.01
         
         # Select random action if dice comes up greater than ever increasing confidence
         if np.random.rand() > conf:
@@ -147,22 +165,24 @@ class QPlayer2D(Player2D):
     def __next__(self):
         """ This runs the agent forward one timestep. """
 
-        in_m = np.reshape(self.W, [1,12,12,1])
-        
         # Run and get a reward
-        values = self._session.run(self._y, feed_dict={self._x: in_m})[0]
+        values = self._session.run(self._y, feed_dict={self._x: [self.working_memory]})[0]
         action_index = self.action_randomize(np.argmax(values))
         
         # Save Prior
-        prior = self.W.copy()
+        prior = self.working_memory.copy()
         
         # Perform Action
         reward = self.action_reward(action_index)
         
+        # Update Working Memory
+        self.update_working_memory()
+        
         # Return new state
-        return (prior, hotone(action_index, self.Na), reward, self.W.copy())
+        return (prior, hotone(action_index, self.Na), reward, self.working_memory.copy())
     
-    def run(self, N = 1000):
+    def run(self, N = 1000, training = True):
+        self.training = training
         memory = deque()
         for i in range(N):
             new_state = next(self)
@@ -170,7 +190,7 @@ class QPlayer2D(Player2D):
         
         return memory
         
-    def train(self, memory, N = 1000, Ns = 5, future_weight = .9, save = True):
+    def train(self, memory, Ns = 5, future_weight = .9, save = True):
         # Get a random sample of the memory
         mem_sample_index = random.sample(tuple(range(len(memory))), Ns)
         states, actions, rewards, results = [], [], [], []
@@ -179,23 +199,13 @@ class QPlayer2D(Player2D):
             actions.append(memory[i][1])
             rewards.append(memory[i][2])
             results.append(memory[i][3])
-        
-        # Reshape for network
-        results = np.array(results)
-        sh = results.shape
-        results = np.reshape(results, [sh[0],sh[1],sh[2],1])
-        
-        # Reshape for network
-        states = np.array(states)
-        sh = states.shape
-        states = np.reshape(states,[sh[0],sh[1],sh[2],1])
-        
+            
         # Get predicted rewards for each result as is
         reward_predictions = self._session.run(self._y, feed_dict={self._x: results})
         expected_rewards = []
         for i in range(Ns):
             expected_rewards.append(rewards[i] + future_weight * np.max(reward_predictions[i]))
-        
+            
         # learn that these actions in these states lead to this reward
         self._session.run(self._train_operation, feed_dict={
             self._x: states,
@@ -205,29 +215,54 @@ class QPlayer2D(Player2D):
         # save checkpoints for later
         if save:
             self._saver.save(self._session, self._path + '/network', global_step=self.T)
-            
+           
+     
 
 if __name__=="__main__":
     world = random_world(Nx = 12, Ny = 12, items = [KEY['wall']], Ni = 10)
     world = random_world(Nx = 12, Ny = 12, original = world, items = [KEY['torch']], Ni = 3)
     start_loc = (np.random.randint(0,12), np.random.randint(0,12))
     inv   = {KEY['wall']: 50, KEY['torch']: 10, KEY['door']: 2}
-    player = QPlayer2D(world, start_loc, inv, Nt = 1, Nz = 1, 
+    player = QPlayer2D(world, start_loc, inv, Nt = 5, Nz = 1, 
                        learn_rate = .9, path = './nn/', realtime = True)
-    
-    scores = []
-    try:
-        while True:
-            memory = player.run(int(1e4))
-            player.train(memory, N = int(1e4), Ns = int(5e3), future_weight = .9, save = True)
-            world = random_world(Nx = 12, Ny = 12, items = [KEY['wall']], Ni = 10)
-            world = random_world(Nx = 12, Ny = 12, original = world, items = [KEY['torch']], Ni = 3)
-            player.W = world
-            player.INV = {KEY['wall']: 50, KEY['torch']: 10, KEY['door']: 2}
-            scores.append(player.best_sc)
-            player.best_sc = -10000
-            print("Regenerating World")
-    except KeyboardInterrupt:
+    def reset_world():
+        # Reset World
+        world = random_world(Nx = 12, Ny = 12, items = [KEY['wall']], Ni = 10)
+        world = random_world(Nx = 12, Ny = 12, original = world, items = [KEY['torch']], Ni = 3)
+        player.W = world
+        player.INV = {KEY['wall']: 50, KEY['torch']: 10, KEY['door']: 2}
+        
+    def run_once():
+        # Run and train on the data
+        memory = player.run(int(1e3), training = True)
+        player.train(memory, Ns = int(5e2), future_weight = .9, save = True)
+        
+    def save_scores():
+        # Handle Score
+        scores.append(player.best_sc)
+        player.best_sc = -10000
+        
+        # Plot scores
         plt.figure()
         plt.plot(scores)
         plt.savefig('./log/scores.png')
+        print("Regenerating World")
+                
+    scores = []
+    
+    # At first we just want to score houses
+    player.SAFETY_WEIGHT = 1000
+    player.FREEDOM_WEIGHT = 0
+    for i in range(100):
+        reset_world()
+        for j in range(10):
+            run_once()
+        save_scores()
+    
+    # Then, we want to worry about the amount of freedom our house gives
+    player.FREEDOM_WEIGHT = 1        
+    for i in range(100):
+        reset_world()
+        for j in range(10):
+            run_once()
+        save_scores()
