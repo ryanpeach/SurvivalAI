@@ -2,10 +2,13 @@ from collections import defaultdict
 import numpy as np
 from World2D import *
 
-class Player:
-    def __init__(self, world, start_loc, inv):
+class Player2D(object):
+    def __init__(self, world, start_loc, inv, realtime = True):
+        self.Ny, self.Nx = world.shape
         self.W = world
         self.Loc = start_loc
+        
+        self.realtime = realtime
         
         # Create inventory
         self.INV = defaultdict(int)
@@ -31,13 +34,20 @@ class Player:
         test_score  = self._score
 
         # Create action lookup
-        self.actions = {0: move_up, 1: move_left, 2: move_right,
-                        3: move_down, 4: sel_wall, 5: sel_torch, 6: sel_door,
-                        7: sel_space, 8: place_up, 9: place_down, 10: place_right,
-                        11: place_left, 12: test_score}
+        self.action_list = [move_up, move_left, move_right, move_down, sel_wall,
+                            sel_torch, sel_door, sel_space, place_up, place_down,
+                            place_right, place_left, test_score]
+        self.action_key  = ['move_up', 'move_left', 'move_right', 'move_down', 'sel_wall',
+                            'sel_torch', 'sel_door', 'sel_space', 'place_up', 'place_down',
+                            'place_right', 'place_left', 'test_score']
+        self.action_key  = dict(zip(self.action_key, self.action_list))
+        self.Na = len(self.action_list)
         
     def action(self, a):
-        return self.actions[a]()
+        succ = self.action_list[a]()
+        if succ and self.realtime:
+            self._display()
+        return succ
         
     def _sel(self, val):
         if self.sel != val:
@@ -48,12 +58,13 @@ class Player:
     def _move(self, dx, dy):
         y0, x0 = self.Loc
         x1, y1 = x0 + dx, y0 + dy
-        xvalid = not (x1 < 0 or x1 >= self.W.shape[1])                          # If new loc is not past the boundary
-        yvalid = not (y1 < 0 or y1 >= self.W.shape[0])                          # -- Also for y
-        passable = W[y1,x1] not in not_passable                                 # And the space is passable
-        if xvalid and yvalid and passable:
-            self.Loc = (y1, x1)                                                 # Move to new location
-            return True                                                         # Return success
+        xvalid = (x1 >= 0 and x1 < self.W.shape[1])                             # If new loc is not past the boundary
+        yvalid = (y1 >= 0 and y1 < self.W.shape[0])                             # -- Also for y
+        if xvalid and yvalid:
+            passable = self.W[y1,x1] not in not_passable                        # And the space is passable
+            if passable:
+                self.Loc = (y1, x1)                                             # Move to new location
+                return True                                                     # Return success
         return False                                                            # Otherwise, return failure
         
     def _place(self, dx, dy):
@@ -78,7 +89,12 @@ class Player:
         L = generate_light(self.W, d_l = 2)
         P = generate_particles(self.W, L, Np=10)
         S = run_simulation(P)
-        return scoreWorld(W,S)
+        return scoreWorld(self.W,S)
+        
+    def _display(self):
+        D = self.W.copy()
+        D[self.Loc] = -1
+        print(D)
         
 if __name__=="__main__":
     # Create World
@@ -97,7 +113,7 @@ if __name__=="__main__":
     
     # Create Player
     inv = {KEY['wall']: 10, KEY['torch']: 5, KEY['door']: 1}
-    player = Player(W, (Ny/2,Nx/2), inv)
+    player = Player2D(W, (Ny/2,Nx/2), inv)
     
     # Actions
     # 0: move_up, 1: move_left, 2: move_right,
@@ -108,9 +124,6 @@ if __name__=="__main__":
     # Create a game loop
     completed = False
     while not completed:
-        D = W.copy()
-        D[player.Loc] = -1
-        print(D)
         a = False
         i = str(input())
         if i == 'mu':

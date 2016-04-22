@@ -7,6 +7,14 @@ not_removable = [KEY['space'], KEY['bedrock']]
 not_passable  = [KEY['wall'] , KEY['bedrock']]
 enemy_not_passable = [KEY['wall'], KEY['door'], KEY['bedrock']]
 
+def random_world(Nx, Ny, items = [KEY['wall']], Ni = 10):
+    W = np.full((Ny,Nx), KEY['space'], dtype='float')
+    for n in range(Ni):
+        i = items[np.random.randint(0, len(items))]
+        x, y = np.random.randint(0,Nx,size=1), np.random.randint(0,Ny,size=1)
+        W[y,x] = i
+    return W
+
 def generate_light(W, d_l = 2):
     """ Creates a light vector """
     # FIXME: Light shouldn't go through walls
@@ -20,7 +28,7 @@ def generate_light(W, d_l = 2):
         if x_l < 0: x_l = 0
         if y_d >= W.shape[0]: y_d = W.shape[0]
         if x_r >= W.shape[1]: x_r = W.shape[1]
-        L[y_u:y_d,x_l:x_r] = np.ones((d_l*2,d_l*2))                             # Create a light array at distance d_l from center of torch
+        L[y_u:y_d,x_l:x_r] = np.ones((abs(y_u-y_d),abs(x_l-x_r)))               # Create a light array at distance d_l from center of torch
         
     return L
 
