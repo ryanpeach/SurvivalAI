@@ -71,7 +71,7 @@ class QPlayer2D(Player2D):
     """ My own version of the class """
     PERFORMACE_COST = -1
     FAILURE_COST    = -2
-    EXPLORE_STEPS   = 1000
+    EXPLORE_STEPS   = 1e5
 
     def __init__(self, world, start_loc, inv, Nt = 1, Nz = 1, 
                        learn_rate = .9, path = './nn/', realtime = True):
@@ -81,6 +81,7 @@ class QPlayer2D(Player2D):
         self.Nt, self.Nz = Nt, Nz
         self.Ch = Nt*Nz
         self.T = 0
+        self.best_sc = -100000
         
         self._session = tf.Session()
         self._x, self._y = self._create_network()
@@ -121,10 +122,13 @@ class QPlayer2D(Player2D):
         """ Performs the action at the given index and returns a reward. """
         self.T += 1
         succ = self.action_list[action_index]()
-        if succ and self.realtime:
-            self._display()
         if succ:
             reward = self.reward_list[action_index]()
+            if reward > self.best_sc:
+                print("Best Score: {0}".format(reward))
+                print("Time: {0}".format(self.T))
+                self.best_sc = reward
+                self._display('Score{0}'.format(reward))
         else:
             reward = self.FAILURE_COST
         return reward + self.PERFORMACE_COST
@@ -192,9 +196,6 @@ class QPlayer2D(Player2D):
         for i in range(Ns):
             expected_rewards.append(rewards[i] + future_weight * np.max(reward_predictions[i]))
         
-        print(states)
-        print(actions)
-        print(expected_rewards)
         # learn that these actions in these states lead to this reward
         self._session.run(self._train_operation, feed_dict={
             self._x: states,
@@ -207,11 +208,26 @@ class QPlayer2D(Player2D):
             
 
 if __name__=="__main__":
-    world = random_world(Nx = 12, Ny = 12, items = list(KEY.values()), Ni = 100)
+    world = random_world(Nx = 12, Ny = 12, items = [KEY['wall']], Ni = 10)
+    world = random_world(Nx = 12, Ny = 12, original = world, items = [KEY['torch']], Ni = 3)
     start_loc = (np.random.randint(0,12), np.random.randint(0,12))
-    inv   = {KEY['wall']: 50, KEY['torch']: 10, KEY['door']: 10}
+    inv   = {KEY['wall']: 50, KEY['torch']: 10, KEY['door']: 2}
     player = QPlayer2D(world, start_loc, inv, Nt = 1, Nz = 1, 
                        learn_rate = .9, path = './nn/', realtime = True)
-                       
-    memory = player.run(10)
-    player.train(memory, N = 10, Ns = 5, future_weight = .9, save = True)
+    
+    scores = []
+    try:
+        while True:
+            memory = player.run(int(1e4))
+            player.train(memory, N = int(1e4), Ns = int(5e3), future_weight = .9, save = True)
+            world = random_world(Nx = 12, Ny = 12, items = [KEY['wall']], Ni = 10)
+            world = random_world(Nx = 12, Ny = 12, original = world, items = [KEY['torch']], Ni = 3)
+            player.W = world
+            player.INV = {KEY['wall']: 50, KEY['torch']: 10, KEY['door']: 2}
+            scores.append(player.best_sc)
+            player.best_sc = -10000
+            print("Regenerating World")
+    except KeyboardInterrupt:
+        plt.figure()
+        plt.plot(scores)
+        plt.savefig('./log/scores.png')

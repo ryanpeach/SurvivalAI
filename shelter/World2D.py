@@ -1,14 +1,42 @@
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import pdb
 
 # Define shape labels
 KEY = {'space': 1, 'wall': 2, 'parti': 3, 'torch': 4, 'door': 5, 'bedrock': 6}
+COLORS = {'space': 'white', 'wall': 'brown', 'parti': 'red', 'torch': 'blue', 'door': 'orange', 'bedrock': 'black'}
 
 not_removable = [KEY['space'], KEY['bedrock']]
 not_passable  = [KEY['wall'] , KEY['bedrock']]
 enemy_not_passable = [KEY['wall'], KEY['door'], KEY['bedrock']]
 
-def random_world(Nx, Ny, items = [KEY['wall']], Ni = 10):
-    W = np.full((Ny,Nx), KEY['space'], dtype='float')
+def draw(world, name='World', path='./log/'):
+    plt.figure()
+    legend_colors = []
+    for k, v in KEY.items():
+        c = COLORS[k]
+        iy, ix = np.where(world == v)
+        if v in enemy_not_passable:
+            r = 10
+        else:
+            r = 1
+        plt.scatter(ix, iy, s = r, color=c, label=k)
+        
+    iy, ix = np.where(world == -1)
+    plt.scatter(ix, iy, s = 100, color='green', label='player')
+    
+    plt.title(name)
+    plt.xlim([-1,world.shape[1]])
+    plt.ylim([-1,world.shape[0]])
+    plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+    plt.savefig(path+name+'.png')
+
+def random_world(Nx, Ny, original = None, items = [KEY['wall']], Ni = 10):
+    if original == None: W = np.full((Ny,Nx), KEY['space'], dtype='float')
+    else: W = original.copy()
     for n in range(Ni):
         i = items[np.random.randint(0, len(items))]
         x, y = np.random.randint(0,Nx,size=1), np.random.randint(0,Ny,size=1)
@@ -50,15 +78,14 @@ def generate_particles(W, L, Np=10):
     
     return P
     
-def run_simulation(P):
+def run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = KEY['parti']):
     """ Used to update the score based on particle location.
         Parameter: P - Particle Matrix.
         Return: Score Matrix """
     #FIXME: This would be faster in Cython
-    p = KEY['parti']
-    
+
     # Create a vectorized solution
-    run = np.vectorize(lambda x, u, r, l, d: p if x not in enemy_not_passable \
+    run = np.vectorize(lambda x, u, r, l, d: p if x not in impassable \
                                                    and p in [x,l,r,u,d] else x)
     
     # Run untill there is no change
@@ -70,7 +97,7 @@ def run_simulation(P):
         
         # Create neighbor matricies
         i, j = S.shape
-        padded = np.full((i+1,j+1), p)
+        padded = np.full((i+1,j+1), fill)
         padded[0:i,0:j] = S
     
         u = np.roll(padded,1,axis=0)[0:i,0:j]
@@ -85,17 +112,30 @@ def run_simulation(P):
         new_count = np.sum(S == p)
         
         # Log it
-        print(count, new_count)
-        
+        #print(count, new_count)
+    
     return S
     
-def scoreWorld(W, S):
+tried = set()
+def scoreWorld(W, S, C):
     # Generate count of particles and impassables
     # The score is the "free-space" that remains
     # FIXME: This can be sped up with Cython
-    scored = enemy_not_passable + [KEY['parti']]
-    count = np.sum( np.vectorize(lambda x: x in scored)(S) )
-    return W.size - count
+    global tried
+    if str(W) not in tried:
+        # Count enemy score
+        scored = enemy_not_passable + [KEY['parti']]
+        S = np.vectorize(lambda x: x in scored)(S)
+        
+        # Count character score
+        scored = [-1]
+        C = np.vectorize(lambda x: x in scored)(C)
+        
+        safe = np.logical_and(C,np.logical_not(S))
+        return np.sum(safe)+.01*np.sum(C)
+    else:
+        tried.add(str(W))
+        return -10
     
 # Define module tests
 if __name__=="__main__":

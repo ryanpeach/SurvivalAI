@@ -69,32 +69,36 @@ class Player2D(object):
         
     def _place(self, dx, dy):
         x1, y1 = self.Loc[1] + dx, self.Loc[0] + dy
-
-        if not (x1 < 0 or x1 >= self.W.shape[1]) \
-            and not (y1 < 0 or y1 >= self.W.shape[0]):                          # If new loc is not past the boundaries
+        xvalid = (x1 >= 0 and x1 < self.W.shape[1])                             # If new loc is not past the boundary
+        yvalid = (y1 >= 0 and y1 < self.W.shape[0])    
+        if xvalid and yvalid and self.W[y1,x1] != self.sel:                     # If new loc is not past the boundaries
             if self.sel == KEY['space']:                                        # If you have selected to add a space (remove block)
                 if self.W[y1,x1] not in not_removable:                          # You may only do this if the target is removable
                     self.INV[self.W[y1,x1]] += 1                                # Add the item to your inventory
-                    self.W[y1,x1] = self.sel                                    # Remove it from the world
+                    self.W[y1,x1] = KEY['space']                                # Remove it from the world
                     return True                                                 # Return success
             elif self.INV[self.sel] > 0:                                        # Else, if the item is in your inventory
                 if self.W[y1,x1] == KEY['space']:                               # And the target is not filled
                     self.W[y1,x1] = self.sel                                    # Put the selection in the space
-                    self.INV[KEY['space']] -= 1                                 # Remove it from your inventory
+                    self.INV[self.sel] -= 1                                 # Remove it from your inventory
                     return True                                                 # Return success
 
         return False                                                            # Otherwise, return failure
         
     def _score(self):
         L = generate_light(self.W, d_l = 2)
-        P = generate_particles(self.W, L, Np=10)
-        S = run_simulation(P)
-        return scoreWorld(self.W,S)
+        P = generate_particles(self.W, L, Np=100)
+        S = run_simulation(P)   # Run simulation on the particles
         
-    def _display(self):
         D = self.W.copy()
         D[self.Loc] = -1
-        print(D)
+        C = run_simulation(D, p = -1, impassable = not_passable)
+        return scoreWorld(self.W, S, C)
+        
+    def _display(self, name):
+        D = self.W.copy()
+        D[self.Loc] = -1
+        draw(D, name = name, path = './log/')
         
 if __name__=="__main__":
     # Create World
