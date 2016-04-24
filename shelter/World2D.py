@@ -33,6 +33,7 @@ def draw(world, name='World', path='./log/'):
     plt.ylim([-1,world.shape[0]])
     plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
     plt.savefig(path+name+'.png')
+    plt.close()
 
 def random_world(Nx, Ny, original = None, items = [KEY['wall']], Ni = 10):
     if original == None: W = np.full((Ny,Nx), KEY['space'], dtype='float')
@@ -60,22 +61,13 @@ def generate_light(W, d_l = 2):
         
     return L
 
-def generate_particles(W, L, Np=10):
+def generate_particles(W, L, p = KEY['parti']):
     """ Used to generate random particles in the world.
         Parameter: W - World Matrix. L - Light Matrix. Np - Number of particles.
         Returns: Particle Matrix """
-    P = W.copy()    # Create a simulation copy of the world
-    for i in np.arange(Np):
-        # Only place particles outside light
-        # FIXME: Faster solution?
-        complete = False
-        while not complete:
-            x_i = np.random.randint(0,W.shape[0])
-            y_i = np.random.randint(0,W.shape[0])
-            complete = L[y_i,x_i] != 1 and W[y_i,x_i] not in enemy_not_passable # We are done when the location given is not lit
-        
-        P[y_i,x_i] = KEY['parti']  # Place a particle here
-    
+    gen = np.vectorize(lambda w, l: p if l != 1 and w not in enemy_not_passable else w)
+    P = gen(W,L)
+
     return P
     
 def run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = KEY['parti']):
@@ -116,26 +108,20 @@ def run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = 
     
     return S
     
-tried = set()
 def scoreWorld(W, S, C, safety_weight = 1000, freedom_weight = 1):
     # Generate count of particles and impassables
     # The score is the "free-space" that remains
     # FIXME: This can be sped up with Cython
-    global tried
-    if str(W) not in tried:
-        # Count enemy score
-        scored = enemy_not_passable + [KEY['parti']]
-        S = np.vectorize(lambda x: x in scored)(S)
+    # Count enemy score
+    scored = enemy_not_passable + [KEY['parti']]
+    S = np.vectorize(lambda x: x in scored)(S)
         
-        # Count character score
-        scored = [-1]
-        C = np.vectorize(lambda x: x in scored)(C)
+    # Count character score
+    scored = [-1]
+    C = np.vectorize(lambda x: x in scored)(C)
         
-        safe = np.logical_and(C,np.logical_not(S))
-        return safety_weight*np.sum(safe)+freedom_weight*np.sum(C)
-    else:
-        tried.add(str(W))
-        return -10
+    safe = np.logical_and(C,np.logical_not(S))
+    return safety_weight*np.sum(safe)+freedom_weight*np.sum(C)
     
 # Define module tests
 if __name__=="__main__":

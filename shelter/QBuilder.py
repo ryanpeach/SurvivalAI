@@ -71,7 +71,7 @@ class QPlayer2D(Player2D):
     """ My own version of the class """
     PERFORMACE_COST = -1
     FAILURE_COST    = -2
-    EXPLORE_STEPS   = 1e6
+    EXPLORE_STEPS   = 1e10
     SAFETY_WEIGHT = 1000
     FREEDOM_WEIGHT = 1
 
@@ -86,6 +86,7 @@ class QPlayer2D(Player2D):
         self.best_sc = -100000
         self.working_memory = np.ones([self.Nx,self.Ny,Nt])
         self.update_working_memory()
+        self.last_reward = 0
         
         self._session = tf.Session()
         self._x, self._y = self._create_network()
@@ -98,7 +99,7 @@ class QPlayer2D(Player2D):
         readout_action = tf.reduce_sum(tf.mul(self._y, self._action), reduction_indices=1)
 
         cost = tf.reduce_mean(tf.square(self._target - readout_action))
-        self._train_operation = tf.train.AdamOptimizer(learn_rate).minimize(cost)
+        self._train_operation = tf.train.AdamOptimizer(learn_rate).minimize(-cost)
         
         self._session.run(tf.initialize_all_variables())
         
@@ -113,7 +114,7 @@ class QPlayer2D(Player2D):
     
     def _score(self):
         L = generate_light(self.W, d_l = 2)
-        P = generate_particles(self.W, L, Np=100)
+        P = generate_particles(self.W, L, p = KEY['parti'])
         S = run_simulation(P)   # Run simulation on the particles
         
         D = self.W.copy()
@@ -139,14 +140,16 @@ class QPlayer2D(Player2D):
         succ = self.action_list[action_index]()
         if succ:
             reward = self.reward_list[0]()
+            dr = reward - self.last_reward
+            self.last_reward = reward
             if reward > self.best_sc:
                 print("Best Score: {0}".format(reward))
                 print("Time: {0}".format(self.T))
                 self.best_sc = reward
-                self._display('Score{0}'.format(reward))
+                self._display('Score{0}'.format(abs(reward)))
         else:
-            reward = self.FAILURE_COST
-        return reward + self.PERFORMACE_COST
+            dr = self.FAILURE_COST
+        return dr + self.PERFORMACE_COST
         
     def action_randomize(self, action_index):
         # Set our confidence linearly from .1 to .9
@@ -204,7 +207,7 @@ class QPlayer2D(Player2D):
         reward_predictions = self._session.run(self._y, feed_dict={self._x: results})
         expected_rewards = []
         for i in range(Ns):
-            expected_rewards.append(rewards[i] + future_weight * np.max(reward_predictions[i]))
+            expected_rewards.append(rewards[i] + future_weight * np.max(reward_predictions[i])) # This is the Bellman Equation
             
         # learn that these actions in these states lead to this reward
         self._session.run(self._train_operation, feed_dict={
@@ -246,6 +249,7 @@ if __name__=="__main__":
         plt.figure()
         plt.plot(scores)
         plt.savefig('./log/scores.png')
+        plt.close()
         print("Regenerating World")
                 
     scores = []
@@ -253,7 +257,7 @@ if __name__=="__main__":
     # At first we just want to score houses
     player.SAFETY_WEIGHT = 1000
     player.FREEDOM_WEIGHT = 0
-    for i in range(100):
+    for i in range(1000):
         reset_world()
         for j in range(10):
             run_once()
@@ -261,7 +265,7 @@ if __name__=="__main__":
     
     # Then, we want to worry about the amount of freedom our house gives
     player.FREEDOM_WEIGHT = 1        
-    for i in range(100):
+    while True:
         reset_world()
         for j in range(10):
             run_once()
