@@ -153,7 +153,7 @@ class QPlayer2D(Player2D):
     FREEDOM_WEIGHT = 1
 
     def __init__(self, world, start_loc, inv, Nt = 1, Nz = 1, 
-                       learn_rate = .9, future_weight = .9, memsize = 1e9, save_freq = 1e3,
+                       learn_rate = 1e-6, future_weight = .99, memsize = 1e9, save_freq = 1e3,
                        path = './nn/', realtime = True):
         super(QPlayer2D, self).__init__(world, start_loc, inv, realtime)
         
@@ -243,7 +243,11 @@ class QPlayer2D(Player2D):
             print("Time: {0}".format(self.T))
             self.best_sc = reward
             self._display('Score{0}'.format(abs(reward)))
-                
+        
+        # Update user on time_step        
+        if self.T % 100 == 0:
+            print("Time: {0}".format(self.T))
+            
         # Return score difference
         return dr
         
@@ -312,14 +316,8 @@ class QPlayer2D(Player2D):
         # Get a random sample of the memory
         if Ns > len(self.memory):
             Ns = len(self.memory)
-        mem_sample_index = random.sample(tuple(range(len(self.memory))), Ns)    # Get random sample of indexes
-        states, actions, rewards, results, terminal = [], [], [], [], []
-        for i in mem_sample_index:                                              # Retrieve those indexes from memory 
-            states.append(self.memory[i][0])
-            actions.append(self.memory[i][1])
-            rewards.append(self.memory[i][2])
-            results.append(self.memory[i][3])
-            terminal.append(self.memory[i][4])
+        mem_sample = random.sample(list(self.memory), Ns)    # Get random sample of indexes
+        states, actions, rewards, results, terminal = zip(*mem_sample)
             
         # Get predicted rewards for each result as is
         reward_predictions = self._session.run(self._y, feed_dict={self._x: results})
@@ -348,8 +346,7 @@ if __name__=="__main__":
     start_loc = (np.random.randint(0,12), np.random.randint(0,12))
     inv   = {KEY['wall']: 50, KEY['torch']: 10, KEY['door']: 2}
     player = QPlayer2D(world, start_loc, inv, Nt = 4, Nz = 1, 
-                       learn_rate = .9, future_weight = .9, memsize = 1e9,
-                       path = './nn/', realtime = True)
+                       memsize = 1e9, path = './nn/', realtime = True)
                        
     def reset_world():
         # Reset World
@@ -360,7 +357,7 @@ if __name__=="__main__":
         
     def run_once():
         # Run and train on the data
-        player.run(int(1e3), training = True, Ns = 1e3)
+        player.run(int(1e4), training = True, Ns = 32)
         
     def save_scores():
         # Handle Score
@@ -382,12 +379,9 @@ if __name__=="__main__":
     for i in range(1000):
         reset_world()
         run_once()
-        save_scores()
     
     # Then, we want to worry about the amount of freedom our house gives
     player.FREEDOM_WEIGHT = 10        
     while True:
         reset_world()
-        for j in range(10):
-            run_once()
-        save_scores()
+        run_once()

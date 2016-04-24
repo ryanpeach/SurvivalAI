@@ -18,6 +18,8 @@ class Player2D(object):
         for k, v in inv.items():
             self.INV[k] = v
             
+        self.T = 0
+            
         # Default selection
         self.sel = KEY['wall']
         
@@ -46,6 +48,7 @@ class Player2D(object):
         self.Na = len(self.action_list)
         
     def action(self, a):
+        self.T += 1
         succ = self.action_list[a]()
         if succ and self.realtime:
             self._display()
@@ -91,6 +94,7 @@ class Player2D(object):
         D = self.W.copy()
         D[self.Loc] = -1
         draw(D, name = name, path = './log/')
+        
         
 if __name__=="__main__":
     # Create World
