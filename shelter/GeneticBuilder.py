@@ -1,17 +1,23 @@
 from World2D import *
-from np.random import choice, randint
+
 from uuid import uuid4 as uuid
+import os
+
 import pandas as pd
+import numpy as np
+from numpy.random import choice, randint
+
 
 GENES = [KEY['wall'], KEY['torch'], KEY['door'], KEY['space']]
-GENES_FREQ = [1,1,1,1]
+GENES_FREQ = [1,1,1,3]
 GENES_FREQ = list(np.array(GENES_FREQ) / np.sum(GENES_FREQ))    # Normalize frequency
+COST = {KEY['wall']: 4, KEY['torch']: 5, KEY['door']: 16, KEY['space']: 4}
 
 def combine(A, B):
     # Check type and get variables
     assert(A.shape == B.shape)
     Ny, Nx = A.shape
-    Ns = ny*nx / 2
+    Na, Nb = len(np.where(A != KEY['space'])[0]), len(np.where(B != KEY['space'])[0])
     
     # Copy A and B to prevent overriding data
     A, B = A.copy(), B.copy()
@@ -21,20 +27,9 @@ def combine(A, B):
     COORD = np.dstack((X,Y))
     COORD = np.reshape(COORD, [Ny*Nx,2])
     
-    # Sample coordinates for A
-    Ay = choice(COORD[:,0], size = [Ns], replace = False)
-    Ax = choice(COORD[:,1], size = [Ns], replace = False)
-    
-    # Get the inverse of the sample for B
-    By = np.setdiff1d(All[:,0], Ay)
-    Bx = np.setdiff1d(All[:,1], Ax)
-    
-    # Create an output array and set values
-    out = np.zeros((Ny,Nx))
-    out[By,Bx] = B[By,Bx]
-    out[Ay,Ax] = A[Ay,Ax]
-    
-    return out
+    Ca = np.vectorize(lambda a: COST[a])(A)  # Cost matrix for A
+    Cb = np.vectorize(lambda b: COST[b])(B)  # Cost matrix for B
+    return np.vectorize(lambda a,b,ca,cb: choice([a,b], size=1, p=[1-ca/(ca+cb),1-cb/(ca+cb)]))(A,B,Ca,Cb)
     
 def mutate(A, rate = 1):
     """ Mutates a world based on the GENES list.
@@ -62,12 +57,20 @@ def mutate(A, rate = 1):
     
 def resample(gen, scores, percent_eliminate = .5, mutation_rate = 5):
     """ Breeds generation together based on their scores. Returns new generation. """
-    Ns = len(gen)*(1.-percent_eliminate)  # Get the sample size
-    P = np.array(scores) / np.sum(scores) # normalize scores to get probabilities
+    assert(len(gen)==len(scores))           # They must be the same length
+    N = len(gen)                               # N is equal to that length
+    Ns = int(len(gen)*(1.-percent_eliminate))  # Get the sample size
+    P = (np.array(scores, dtype='float')+abs(min(scores))+.001) / np.sum(np.array(scores)+abs(min(scores))+.001) # normalize scores to get probabilities
+
+    # Kill off percent_eliminate of the worst worlds
+    survive_index = choice(np.arange(len(gen)), size = Ns, replace = False, p = P)
+    gen, scores = [gen[i] for i in survive_index], [scores[i] for i in survive_index]
+    P = (np.array(scores, dtype='float')+abs(min(scores))+.001) / np.sum(np.array(scores)+abs(min(scores))+.001) # normalize scores to get probabilities
     
-    # Sample the generation based on score, higher the more probable to remain
-    A = np.choice(breed, size = Ns/2, replace = True, p = P)
-    B = np.choice(breed, size = Ns/2, replace = True, p = P)
+    # Sample the generation based on score, higher the more probable to breed
+    A = choice(np.arange(Ns), size = N, replace = True, p = P)
+    B = choice(np.arange(Ns), size = N, replace = True, p = P)
+    A, B = [gen[i] for i in A], [gen[i] for i in B]
     
     # Generate the next generation
     new_gen, new_scores = [], []
@@ -77,7 +80,7 @@ def resample(gen, scores, percent_eliminate = .5, mutation_rate = 5):
         new_world = mutate(new_world, rate = mutation_rate)
         
         # Score the new world
-        new_score = simple_score(new_world, safety_weight = Safety, freedom_weight = Freedom)
+        new_score = score(new_world, safety_weight = Safety, freedom_weight = Freedom)
         
         # Append it to the new generation
         new_gen.append(new_world)
@@ -85,43 +88,77 @@ def resample(gen, scores, percent_eliminate = .5, mutation_rate = 5):
         
     return new_gen, new_scores
 
+def score(W, safety_weight = 1000, freedom_weight = 1):
+    L = generate_light(W, d_l = 2)
+    P = generate_particles(W, L, p = KEY['parti'])
+    S = run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = KEY['parti'])
+    C = run_simulation(W, p = -1, impassable = not_passable, fill = -1)
+    world_score = scoreWorld(W,S,C,safety_weight = safety_weight, freedom_weight = freedom_weight)
+    
+    w = COST[KEY['wall']]*np.sum(W == KEY['wall'])
+    t = COST[KEY['torch']]*np.sum(W == KEY['torch'])
+    d = COST[KEY['door']]*np.sum(W == KEY['door'])
+    
+    return world_score - w - t - d
+    
 if __name__ == "__main__":
     # Create constants
+    N = 10
     Ny, Nx = 10, 10
-    Nwall, Ntorch, Ndoor = 10, 5, 2
-    Safety, Freedom = 1000, 1
+    Nwall, Ntorch, Ndoor = 100, 20, 2
+    Safety, Freedom = 1000., 10.
     percent_eliminate, mutation_rate = .5, 5
     best_sc, best_w, t = 0, None, 0
     
     world_index = {}
-    data = pd.DataFrame(columns=('ID', 'Score', 'Gen'))
+    data = pd.DataFrame(columns=('Score', 'Gen'))
     
+    def create_path(path):
+        if not os.path.exists(path):
+            os.makedirs(path)
+            
     def save_data(gen, scores):
         """ Used to save the data at each iteration. """
+        global best_sc
         for world, sc in zip(gen, scores):
+            # Index world and save to spreadsheet
             name = uuid()
             world_index[name] = world
             data.loc[name] = {'Score': sc, 'Gen': t}
-            draw(world, name='World{0}'.format(name), path='./GeneticLog/All/T{0}/'.format(t))
+            
+            # Draw world
+            draw_path = './GeneticLog/All/T{0}/'.format(t)
+            create_path(draw_path)
+            draw(world, name='World{0}'.format(name), path=draw_path)
             
         # Get Best
         if max(scores) > best_sc:
             best_sc = max(scores)
-            best_w  = gen[np.where(scores == best_sc)]
-            draw(best_w, name='Score{0}'.format(best_sc), path='./GeneticLog/')
+            best_w  = gen[np.where(scores == best_sc)[0][0]]
             
+            # Draw Best at root
+            create_path('./GeneticLog/')
+            draw(best_w, name='Score{0}'.format(best_sc), path='./GeneticLog/')
+            print("New Best: {1} T: {0}".format(t,best_sc))
+        
+        # Overwrite Spreadsheet
+        create_path('./GeneticLog/')
         data.to_csv('./GeneticLog/generations.csv')
+        
+        # Print every 100 iterations
+        if t % 10 == 0:
+            print("T: {0}, Best Score: {1}".format(t,best_sc))
             
     # Create a N random worlds
     generation, score_gen = [], []
-    for n in N:
+    for n in np.arange(N):
         # Generate new world with Nwall walls, Ntorch torches, and Ndoor doors
         new_world = random_world(Nx, Ny, original = None, items = [KEY['wall']], Ni = Nwall)
         new_world = random_world(Nx, Ny, original = new_world, items = [KEY['torch']], Ni = Ntorch)
         new_world = random_world(Nx, Ny, original = new_world, items = [KEY['door']], Ni = Ndoor)
         
         # Score the world
-        new_score = simple_score(new_world, safety_weight = Safety, freedom_weight = Freedom)
+        new_score = score(new_world, safety_weight = Safety, freedom_weight = Freedom)
         
         # Add to generation
         generation.append(new_world)

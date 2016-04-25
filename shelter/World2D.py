@@ -82,14 +82,14 @@ def run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = 
     
     # Run untill there is no change
     S = P.copy()
-    count, new_count = np.sum(S == p), 0
+    count, new_count = np.sum(S == p), -1
     while count != new_count:
         # Replace count with new_count
         count = new_count
         
         # Create neighbor matricies
         i, j = S.shape
-        padded = np.full((i+1,j+1), fill)
+        padded = np.full((i+1,j+1), fill_value=fill)
         padded[0:i,0:j] = S
     
         u = np.roll(padded,1,axis=0)[0:i,0:j]
@@ -125,8 +125,8 @@ def scoreWorld(W, S, C, safety_weight = 1000, freedom_weight = 1):
 
 def simple_score(W, safety_weight = 1000, freedom_weight = 1):
     L = generate_light(W, d_l = 2)
-    P = generate_particles(W, L)
-    S = run_simulation(P)
+    P = generate_particles(W, L, p = KEY['parti'])
+    S = run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = KEY['parti'])
     C = run_simulation(W, p = -1, impassable = not_passable, fill = -1)
     return scoreWorld(W,S,C,safety_weight = safety_weight, freedom_weight = freedom_weight)
         
@@ -138,7 +138,7 @@ if __name__=="__main__":
     
     # Create a basic house
     H = [[KEY['wall'],KEY['wall'], KEY['wall'], KEY['wall']],
-         [KEY['wall'],KEY['space'],KEY['space'],KEY['wall']],
+         [KEY['door'],KEY['space'],KEY['space'],KEY['wall']],
          [KEY['wall'],KEY['torch'],KEY['space'],KEY['wall']],
          [KEY['wall'],KEY['wall'], KEY['wall'], KEY['wall']]]
     H = np.array(H)
@@ -147,7 +147,9 @@ if __name__=="__main__":
     W[Ny/2:Ny/2+H.shape[0], Nx/2:Nx/2+H.shape[1]] = H
     
     # Run the Simulation
-    L = generate_light(W, d_l = 2)
-    P = generate_particles(W, L, Np=10)
-    S = run_simulation(P)
-    print(scoreWorld(W,S))
+    #L = generate_light(W, d_l = 2)
+    #P = generate_particles(W, L)
+    #S = run_simulation(P)
+    #print(scoreWorld(W,S))
+    
+    print(simple_score(W))
