@@ -121,8 +121,8 @@ class RollingMemory(object):
     """ A class used for memory which pops its oldest element after
         reaching a certain size """
     def __init__(self, size):
-        self.Mem = deque()
-        self.MAX = size
+        self.Mem = deque(maxlen = int(size))
+        self.MAX = int(size)
         
     def __getitem__(self, i):
         return self.Mem[i]
@@ -131,12 +131,13 @@ class RollingMemory(object):
         self.Mem[i] = v
         
     def add(self, i):
-        self.Mem.append(i)
-        if len(self.Mem)>self.MAX:
-            return self.Mem.popleft()
+        if len(self.Mem) == self.MAX:
+            out = self.Mem.popleft()
         else:
-            return None
-            
+            out = None
+        self.Mem.append(i)
+        return out
+        
     def copy(self):
         return deepcopy(self.Mem)
         
@@ -153,7 +154,7 @@ class QPlayer2D(Player2D):
     FREEDOM_WEIGHT = 1
 
     def __init__(self, world, start_loc, inv, Nt = 1, Nz = 1, 
-                       learn_rate = 1e-6, future_weight = .99, memsize = 1e9, save_freq = 1e3,
+                       learn_rate = 1e-6, future_weight = .99, memsize = 1e6, save_freq = 1e3,
                        path = './nn/', realtime = True):
         super(QPlayer2D, self).__init__(world, start_loc, inv, realtime)
         
@@ -162,7 +163,7 @@ class QPlayer2D(Player2D):
         self.Nt, self.Nz = Nt, Nz
         self.Ch = Nt*Nz
         self.T = 0
-        self.best_sc = -100000
+        self.best_sc = 0
         self.future_weight = .9
         self.save_freq = save_freq
         self.MEM_SIZE = memsize
@@ -247,6 +248,8 @@ class QPlayer2D(Player2D):
         # Update user on time_step        
         if self.T % 100 == 0:
             print("Time: {0}".format(self.T))
+            print("Reward: {0}, Dr: {1}".format(reward,dr))
+            self._display('World')
             
         # Return score difference
         return dr
@@ -262,12 +265,15 @@ class QPlayer2D(Player2D):
                 conf = a
         else:
             conf = a
+            
+        if self.T % 100 == 0:
+            print("Confidence: {0}".format(conf))
         
         # Select random action if dice comes up greater than ever increasing confidence
         if np.random.rand() > conf:
-            return np.random.randint(0, self.Na)
-        else:
             return action_index
+        else:
+            return np.random.randint(0, self.Na)
         
     def __next__(self):
         """ This runs the agent forward one timestep. """
@@ -316,7 +322,7 @@ class QPlayer2D(Player2D):
         # Get a random sample of the memory
         if Ns > len(self.memory):
             Ns = len(self.memory)
-        mem_sample = random.sample(list(self.memory), Ns)    # Get random sample of indexes
+        mem_sample = random.sample(list(self.memory.Mem), Ns)    # Get random sample of indexes
         states, actions, rewards, results, terminal = zip(*mem_sample)
             
         # Get predicted rewards for each result as is
@@ -346,7 +352,7 @@ if __name__=="__main__":
     start_loc = (np.random.randint(0,12), np.random.randint(0,12))
     inv   = {KEY['wall']: 50, KEY['torch']: 10, KEY['door']: 2}
     player = QPlayer2D(world, start_loc, inv, Nt = 4, Nz = 1, 
-                       memsize = 1e9, path = './nn/', realtime = True)
+                       memsize = 1e6, path = './nn/', realtime = True)
                        
     def reset_world():
         # Reset World
@@ -362,7 +368,7 @@ if __name__=="__main__":
     def save_scores():
         # Handle Score
         scores.append(player.best_sc)
-        player.best_sc = -10000
+        player.best_sc = 0
         
         # Plot scores
         plt.figure()
@@ -376,7 +382,7 @@ if __name__=="__main__":
     # At first we just want to score houses
     player.SAFETY_WEIGHT = 1000
     player.FREEDOM_WEIGHT = 0
-    for i in range(1000):
+    for i in range(100):
         reset_world()
         run_once()
     

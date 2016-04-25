@@ -122,7 +122,14 @@ def scoreWorld(W, S, C, safety_weight = 1000, freedom_weight = 1):
         
     safe = np.logical_and(C,np.logical_not(S))
     return safety_weight*np.sum(safe)+freedom_weight*np.sum(C)
-    
+
+def simple_score(W, safety_weight = 1000, freedom_weight = 1):
+    L = generate_light(W, d_l = 2)
+    P = generate_particles(W, L)
+    S = run_simulation(P)
+    C = run_simulation(W, p = -1, impassable = not_passable, fill = -1)
+    return scoreWorld(W,S,C,safety_weight = safety_weight, freedom_weight = freedom_weight)
+        
 # Define module tests
 if __name__=="__main__":
     # Create World
