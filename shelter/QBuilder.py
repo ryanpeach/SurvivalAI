@@ -188,10 +188,11 @@ class QPlayer2D(Player2D):
             with tf.name_scope('cost'):
                 cost = tf.reduce_mean(tf.square(self._target - readout_action))
             with tf.name_scope('train'):
-                self._train_operation = tf.train.AdamOptimizer(learn_rate).minimize(cost)
+                self._train_operation = tf.train.AdamOptimizer(learn_rate).minimize(-cost)
         
         # Run Session
-        train_writer = tf.train.SummaryWriter(self._path + '/tfboatd', self._session.graph)
+        self.summary_op = tf.merge_all_summaries()
+        self.train_writer = tf.train.SummaryWriter(self._path + '/tfboatd', self._session.graph)
         self._session.run(tf.initialize_all_variables())
         
         # Create a saver and load data
@@ -212,7 +213,7 @@ class QPlayer2D(Player2D):
         D = self.W.copy()
         D[self.Loc] = -1
         C = run_simulation(D, p = -1, impassable = not_passable, fill = KEY['space'])
-        return scoreWorld(self.W, S, C, self.SAFETY_WEIGHT, self.FREEDOM_WEIGHT)
+        return scoreWorld(S, C, self.SAFETY_WEIGHT, self.FREEDOM_WEIGHT)
         
     def update_working_memory(self):
         self.working_memory = np.roll(self.working_memory, 1, axis=2)
@@ -336,10 +337,12 @@ class QPlayer2D(Player2D):
                     np.max(reward_predictions[i])) # This is the Bellman Equation
             
         # learn that these actions in these states lead to this reward
-        self._session.run(self._train_operation, feed_dict={
+        _, summ = self._session.run([self._train_operation, self.summary_op], feed_dict={
             self._x: states,
             self._action: actions,
             self._target: expected_rewards})
+        
+        self.train_writer.add_summary(summ, self.T)
 
         # save checkpoints for later
         if self.T % self.save_freq == 0:

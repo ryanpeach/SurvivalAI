@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import pdb
 
 # Define shape labels
-KEY = {'space': 1, 'wall': 2, 'parti': 3, 'torch': 4, 'door': 5, 'bedrock': 6}
+KEY = {'space': 0, 'wall': 1, 'parti': 4, 'torch': 2, 'door': 3, 'bedrock': 5}
 COLORS = {'space': 'white', 'wall': 'brown', 'parti': 'red', 'torch': 'blue', 'door': 'orange', 'bedrock': 'black'}
 
 not_removable = [KEY['space'], KEY['bedrock']]
@@ -108,7 +108,7 @@ def run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = 
     
     return S
     
-def scoreWorld(W, S, C, safety_weight = 1000, freedom_weight = 1):
+def scoreWorld(S, C, safety_weight = 1000, freedom_weight = 1):
     # Generate count of particles and impassables
     # The score is the "free-space" that remains
     # FIXME: This can be sped up with Cython
