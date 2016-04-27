@@ -93,7 +93,7 @@ def score(W, safety_weight = 1000, freedom_weight = 1):
     P = generate_particles(W, L, p = KEY['parti'])
     S = run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = KEY['parti'])
     C = run_simulation(W, p = -1, impassable = not_passable, fill = -1)
-    world_score = scoreWorld(W,S,C,safety_weight = safety_weight, freedom_weight = freedom_weight)
+    world_score = scoreWorld(S,C,safety_weight = safety_weight, freedom_weight = freedom_weight)
     
     w = COST[KEY['wall']]*np.sum(W == KEY['wall'])
     t = COST[KEY['torch']]*np.sum(W == KEY['torch'])
@@ -104,13 +104,13 @@ def score(W, safety_weight = 1000, freedom_weight = 1):
 if __name__ == "__main__":
     # Create constants
     N = 10
-    Ny, Nx = 10, 10
+    Ny, Nx = 12, 12
     Nwall, Ntorch, Ndoor = 100, 20, 2
     Safety, Freedom = 1000., 10.
     percent_eliminate, mutation_rate = .5, 5
     best_sc, best_w, t = 0, None, 0
     
-    world_index = {}
+    world_index, score_index = {}, {}
     data = pd.DataFrame(columns=('Score', 'Gen'))
     
     def create_path(path):
@@ -124,6 +124,7 @@ if __name__ == "__main__":
             # Index world and save to spreadsheet
             name = uuid()
             world_index[name] = world
+            score_index[name] = sc
             data.loc[name] = {'Score': sc, 'Gen': t}
             
             # Draw world
@@ -165,7 +166,7 @@ if __name__ == "__main__":
         score_gen.append(new_score)
     
     # Repeat Forever
-    while True:
+    for i in range(10):
         # Save generation data
         save_data(generation, score_gen)
         
@@ -175,4 +176,14 @@ if __name__ == "__main__":
         # Eliminate percent_eliminate best samples based on their score (randomly, some that are weak should survive)
         # Breed them together and mutate the children
         generation, score_gen = resample(generation, score_gen, percent_eliminate = percent_eliminate, mutation_rate = mutation_rate)
+    
+    from AnalogyBuilder import ScoreRegression
+    worlds, scores = [], []
+    for name in world_index:
+        worlds.append(world_index[name])
+        scores.append(score_index[name])
         
+    world, sc = ScoreRegression(worlds, scores)
+    draw(world[0,:,:], name='NNWorld', path='./GeneticLog/')
+    test_sc = score(world[0,:,:])
+    print("Test Score: {0}".format(test_sc))

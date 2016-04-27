@@ -1,0 +1,5 @@
+Name, Mob-Passable, Player-Passable, Light-Source, Storable, Movable, Cost
+Stone, False, False, False, True, True, 1
+Torch, True, True, True, True, True, 4
+Door, False, True, False, True, True, 16
+Bedrock, False, False, False, False, False, 0

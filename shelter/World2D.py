@@ -128,7 +128,7 @@ def simple_score(W, safety_weight = 1000, freedom_weight = 1):
     P = generate_particles(W, L, p = KEY['parti'])
     S = run_simulation(P, p = KEY['parti'], impassable = enemy_not_passable, fill = KEY['parti'])
     C = run_simulation(W, p = -1, impassable = not_passable, fill = -1)
-    return scoreWorld(W,S,C,safety_weight = safety_weight, freedom_weight = freedom_weight)
+    return scoreWorld(S,C,safety_weight = safety_weight, freedom_weight = freedom_weight)
         
 # Define module tests
 if __name__=="__main__":

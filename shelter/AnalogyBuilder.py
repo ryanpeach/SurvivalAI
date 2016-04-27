@@ -95,7 +95,7 @@ def score_tensor(world, safety_weight, freedom_weight):
         return safe*safety_weight + free*freedom_weight
 
 
-def feature_extraction(x, Nx, Ny, Ch, c1s = 8, c1f = 16, c2s = 4, c2f = 32, m1s = 4, m2s = 2, No = 512):
+def feature_extraction(x, Nx, Ny, Ch, conv_w_1, conv_b_1, conv_w_2, conv_b_2, ff_w_1, ff_b_1, m1s = 4, m2s = 2, No = 512):
     """ Creates a convolutional neural network to analyze some world tensor and return features from it. """
     # Check that all the sizes are consistent
     assert(Nx/m1s == int(Nx/m1s) and (Nx/m1s/m2s == int(Nx/m1s/m2s)))
@@ -103,72 +103,132 @@ def feature_extraction(x, Nx, Ny, Ch, c1s = 8, c1f = 16, c2s = 4, c2f = 32, m1s 
     
     # First Convolutional Layer
     with tf.name_scope("Convolution1"):
-        with tf.name_scope("weights"):
-            conv_w_1 = tf.Variable(tf.truncated_normal([c1s,c1s,Ch,c1f], stddev=0.01))
-            variable_summaries(conv_w_1, "Convolution1" + '/weights')
-        with tf.name_scope("biases"):
-            conv_b_1 = tf.Variable(tf.truncated_normal([c1f], stddev=0.01))
-            variable_summaries(conv_b_1, "Convolution1" + '/biases')
-        with tf.name_scope('Wx_plus_b'):
-            conv1_act = tf.nn.conv2d(x, conv_w_1, strides=[1, 1, 1, 1], padding='SAME') + conv_b_1
-            tf.histogram_summary("Convolution1" + '/activations', conv1_act)
+        conv1_act = tf.nn.conv2d(x, conv_w_1, strides=[1, 1, 1, 1], padding='SAME') + conv_b_1
         conv1 = tf.nn.relu(conv1_act, 'relu')
-        tf.histogram_summary("Convolution1" + '/activations_relu', conv1)
         
     # First Max Pooling Layer
     with tf.name_scope("Max1"):
         max1 = tf.nn.max_pool(conv1, ksize=[1, m1s, m1s, 1], strides=[1, m1s, m1s, 1], padding='SAME')
-        tf.histogram_summary("Max1", max1)
         
     # Second Convolutional Layer
     with tf.name_scope("Convolution2"):
-        with tf.name_scope("weights"):
-            conv_w_2 = tf.Variable(tf.truncated_normal([c2s,c2s,c1f,c2f], stddev=0.01))
-            variable_summaries(conv_w_2, "Convolution2" + '/weights')
-        with tf.name_scope("biases"):
-            conv_b_2 = tf.Variable(tf.truncated_normal([c2f], stddev=0.01))
-            variable_summaries(conv_b_2, "Convolution2" + '/biases')
-        with tf.name_scope('Wx_plus_b'):
-            conv2_act = tf.nn.conv2d(max1, conv_w_2, strides=[1, 1, 1, 1], padding='SAME') + conv_b_2
-            tf.histogram_summary("Convolution2" + '/activations', conv2_act)
+        conv2_act = tf.nn.conv2d(max1, conv_w_2, strides=[1, 1, 1, 1], padding='SAME') + conv_b_2
         conv2 = tf.nn.relu(conv2_act, 'relu')
-        tf.histogram_summary("Convolution2" + '/activations_relu', conv2)
 
     # Second Max Pooling Layer
     with tf.name_scope("Max2"):
         max2 = tf.nn.max_pool(conv2, ksize=[1, m2s, m2s, 1], strides=[1, m2s, m2s, 1], padding='SAME')
-        tf.histogram_summary("Max2", max2)
 
     # Reshaping max2 for FF1
-    max2_rshp = tf.reshape(max2, [-1, int((Nx/m1s/m2s)*(Ny/m1s/m2s)*c2f)]) # Layer shape [None, 5, 5, 64] 1600 Total
+    max2_rshp = tf.reshape(max2, [-1, 288]) # Layer shape [None, 5, 5, 64] 1600 Total
     
     # First Feed Forward Layer
     with tf.name_scope('FF1'):
-        with tf.name_scope('weights'):
-            ff_w_1 = tf.Variable(tf.truncated_normal([max2_rshp.get_shape().as_list()[1], No], stddev=0.01))
-            variable_summaries(ff_w_1, "FF1" + '/weights')
-        with tf.name_scope('biases'):
-            ff_b_1 = tf.Variable(tf.constant(0.01, shape=[No]))
-            variable_summaries(ff_b_1, "FF1" + '/biases')
-        with tf.name_scope('Wx_plus_b'):
-            ff1_act = tf.matmul(max2_rshp, ff_w_1) + ff_b_1
-            tf.histogram_summary("FF1" + '/activations', ff1_act)
+        ff1_act = tf.matmul(max2_rshp, ff_w_1) + ff_b_1
         ff1 = tf.nn.relu(ff1_act, 'relu')
-        tf.histogram_summary("FF1" + '/activations_relu', ff1)
     
     return ff1
 
 def key_to_tensor(W, Nobjects):
     vec = lambda y, x: np.array([1. if i == W[y,x] else 0. for i in np.arange(Nobjects)])
-    new_tensor = np.zeros((1,W.shape[0],W.shape[1],Nobjects))
+    new_tensor = np.zeros((W.shape[0],W.shape[1],Nobjects))
     for y in np.arange(W.shape[0]):
         for x in np.arange(W.shape[1]):
-            new_tensor[0,y,x,:] = vec(y,x)
+            new_tensor[y,x,:] = vec(y,x)
     return new_tensor
+
 
 # Channels: Enemy_Accessible, Character_Accessible, Light, Cost
 # Attributes: Enemy_passable, Character_passable, Light-Source
+def ScoreRegression(worlds, scores, OPS = ['train','score']):
+    Nx, Ny = worlds[0].shape
+    Nobjects, Ch, No = 4, 4, 512
+    worlds = [key_to_tensor(x, Nobjects) for x in worlds]
+    scores = [np.reshape(x, [1]) for x in scores]
+    
+    with tf.Session() as sess:
+        with tf.name_scope("Declarations"):
+            c1s, c1f, c2s, c2f = 3, 16, 2, 32
+            W_in  = tf.placeholder(shape = [None, Nx, Ny, Nobjects], dtype = 'float', name = "Worlds")
+            conv_w_1 = tf.Variable(tf.truncated_normal([c1s,c1s,Ch,c1f], stddev=1.01))
+            conv_b_1 = tf.Variable(tf.truncated_normal([c1f], stddev=1.01))
+            conv_w_2 = tf.Variable(tf.truncated_normal([c2s,c2s,c1f,c2f], stddev=1.01))
+            conv_b_2 = tf.Variable(tf.truncated_normal([c2f], stddev=1.01))
+            ff_w_1 = tf.Variable(tf.truncated_normal([288, No], stddev=1.01))
+            ff_b_1 = tf.Variable(tf.constant(0.01, shape=[No]))
+            ff_w_2 = tf.Variable(tf.truncated_normal([512, 1], stddev = 0.01))
+            ff_b_2 = tf.Variable(tf.truncated_normal([1]))
+            keep_prob = tf.placeholder(tf.float32)
+            
+        with tf.name_scope("World_Variable"):
+            W_var = tf.Variable(tf.truncated_normal([1,Nx,Ny,Nobjects], stddev=5.01), name = "World_Var")
 
+        with tf.name_scope('Regression_Network'):
+            with tf.name_scope('Features'):
+                ff1 = feature_extraction(W_in, Nx, Ny, Ch, conv_w_1, conv_b_1, conv_w_2, conv_b_2, ff_w_1, ff_b_1, m1s = 2, m2s = 2, No = No)
+            with tf.name_scope('Regression'):
+                with tf.name_scope('FF2'):
+                    with tf.name_scope('dropout'):
+                        ff1_drop = tf.nn.dropout(ff1, keep_prob)
+                    ff2_act = tf.matmul(ff1_drop, ff_w_2) + ff_b_2
+                    ff2 = tf.nn.relu(ff2_act, 'relu')
+        
+        with tf.name_scope('Creation_Network'):
+            with tf.name_scope('Features'):
+                ff1_cre = feature_extraction(W_var, Nx, Ny, Ch, conv_w_1, conv_b_1, conv_w_2, conv_b_2, ff_w_1, ff_b_1, m1s = 2, m2s = 2, No = No)
+            with tf.name_scope('Regression'):
+                with tf.name_scope('FF2'):
+                    with tf.name_scope('dropout'):
+                        ff1_drop_cre = tf.nn.dropout(ff1_cre, keep_prob)
+                    ff2_act_cre = tf.matmul(ff1_drop_cre, ff_w_2) + ff_b_2
+                    ff2_cre = tf.nn.relu(ff2_act_cre, 'relu')
+        
+        trainer = tf.train.AdamOptimizer(.01)
+        with tf.name_scope('Regression_Accuracy'):
+            S = tf.placeholder(shape = [None, 1], dtype = 'float', name = "Scores")
+            dist = tf.reduce_mean(tf.abs(ff2 - S), name = "Dist")
+            tf.scalar_summary('regressor/score', dist)
+            reg_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "Declarations")
+            train_regression = trainer.minimize(dist, var_list=reg_vars)
+
+        with tf.name_scope('Creation_Score'):
+            dist_w = tf.reduce_mean(tf.abs(ff2_cre), name = "Value")
+            tf.scalar_summary('creator/score', dist_w)
+            cr_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "World_Variable")
+            gen_cr = trainer.minimize(-dist_w, var_list=cr_vars)
+            
+        # Create summary writer
+        summary_op = tf.merge_all_summaries()
+        summary_writer = tf.train.SummaryWriter('./log/',
+                                        graph_def=sess.graph_def)
+        
+        # Initialize Variables
+        sess.run(tf.initialize_all_variables())
+        
+        # Train the networ
+        t = 0
+        cst = 1000
+        while cst > 400.0:
+            gen, cst, summ = sess.run([train_regression, dist, summary_op], feed_dict = {W_in: worlds, S: scores, keep_prob: .99})
+            summary_writer.add_summary(summ, t)
+            print("Cost: {0}".format(cst))
+            t += 1
+        
+        # Create a new world
+        while cst < 50000:
+            gen, cst, wrld, summ = sess.run([gen_cr, dist_w, W_var, summary_op], feed_dict = {W_in: worlds, S: scores, keep_prob: 1.})
+            summary_writer.add_summary(summ, t)
+            print("Cost: {0}".format(cst))
+            #print("World: {0}".format(wrld))
+            t += 1
+        
+        wrld = np.argmax(wrld, axis = 3)
+        print("Final")
+        print("Cost: {0}".format(cst))
+        print(wrld)
+        return wrld, cst
+
+    
 # World: Wall, Door, Torch
 def FindAnalogy(inspiration, style):
     Nx, Ny = inspiration.shape
@@ -203,7 +263,7 @@ def FindAnalogy(inspiration, style):
         with tf.name_scope('Train'):
             merge_features = inspiration_features + style_features
             dist_w = tf.reduce_mean(tf.square(world_features - merge_features))
-            generate = tf.train.AdamOptimizer(.01).minimize(dist_w)
+            generate = tf.train.AdamOptimizer(.01).minimize(tf.Print(dist_w, [dist_w, world]))
 
         # Create summary writer
         summary_op = tf.merge_all_summaries()
@@ -217,10 +277,10 @@ def FindAnalogy(inspiration, style):
         t = 0
         cst = 1000
         while cst > 0.0:
-            _, cst, summ, wld = sess.run([generate, dist_w, summary_op, world], feed_dict = {inspiration_in: inspiration, style_in: style})
+            _, summ = sess.run([generate, summary_op], feed_dict = {inspiration_in: inspiration, style_in: style})
             summary_writer.add_summary(summ, t)
-            print("Cost: {0}".format(cst))
-            print("World: {0}".format(wld[0,:,:,0]))
+            #print("Cost: {0}".format(cst))
+            #print("World: {0}".format(wld[0,:,:,0]))
             t += 1
             
         return sess.run(world)
@@ -246,10 +306,10 @@ if __name__=="__main__":
     # Create a basic house
     H = [[KEY['space'],KEY['wall'], KEY['wall'], KEY['space']],
          [KEY['wall'], KEY['wall'], KEY['wall'], KEY['wall']],
+         [KEY['wall'], KEY['space'],KEY['torch'],KEY['wall']],
          [KEY['wall'], KEY['space'],KEY['space'],KEY['wall']],
          [KEY['wall'], KEY['space'],KEY['space'],KEY['wall']],
-         [KEY['wall'], KEY['space'],KEY['space'],KEY['wall']],
-         [KEY['door'], KEY['space'],KEY['space'],KEY['wall']],
+         [KEY['door'], KEY['torch'],KEY['space'],KEY['wall']],
          [KEY['wall'], KEY['wall'], KEY['wall'], KEY['wall']],
          [KEY['space'],KEY['wall'], KEY['wall'], KEY['space']]]
     H = np.array(H)
@@ -257,7 +317,10 @@ if __name__=="__main__":
     # Place the house in the world
     style[2:10, 4:8] = H
     
-    print(style)
-    print(inspiration)
+    scores = [simple_score(inspiration), simple_score(style)]
+    worlds = [inspiration, style]
+    ScoreRegression(worlds, scores)
+    #print(style)
+    #print(inspiration)
     
-    print(FindAnalogy(inspiration, style)[0,:,:,0])
+    #print(FindAnalogy(inspiration, style)[0,:,:,0])
