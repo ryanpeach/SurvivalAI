@@ -1,17 +1,110 @@
 import numpy as np
+from multiprocessing import pool
+from uuid import uuid4
 
 class Region(object):
-    __slots__ = ['x0','x1','R','L','V']
-    def __init__(self, x0, x1, R, L, V):
-        assert(x0[0]<=x1[0] and x0[1]<=x1[1] and x0[2]<=x1[2])                  # x0 must be less than x1
-        self.x0, self.x1 = np.array(x0), np.array(x1)                           # Set properties
-        self.R, self.L, self.V = np.array(R), np.array(L), np.array(V)          # --
+    __slots__ = ('x0','dx','R','L','V','Vindex','PARENTS','children', 'ID', 'name', 'LOCK')
+    IMMUTABLE = ('dx','V','ID','PARENTS')
+    
+    def __init__(self, V, x0 = (0, 0), R = None, L = None, name = None, parents = None):
+        # Set to not-immutable, so properties can be set
+        self.LOCK = False
         
+        # Set immutable properties
+        self.V = np.array(V)
+        self.dx = np.array(V.shape)
+        self.ID = uuid4()
+        
+        # Set mutable properties
+        # Default R is same shape as V with an extra dimension size 3
+        if R is None:
+            sx, sy, sz = V.shape
+            self.R = np.zeros((sx,sy,sz,3))
+        else:
+            self.R = R
+        
+        # Default L is the same shape as V, either filled with a single value L, or 0
+        if L is None:
+            if isinstance(L, (int, long, float)):
+                self.L = np.full(V.shape, fill_value = L)
+            else:
+                self.L = np.zeros(V.shape)
+        else:
+            self.L = L
+        
+        # Type check parents to use ID's instead of the variable itself.
+        # This way our object is pickleable easily
+        # We can use a lookup table to find them from here
+        if parents is not None:
+            parents = list(parents)
+            if isinstance(parents[0], Region):
+                parents[0] = parents[0].ID
+            if isinstance(parents[1], Region):
+                parents[1] = parents[1].ID
+            if not isinstance(parents[0], type(self.ID)) \
+                and not isinstance(parents[1], type(self.ID)):
+                raise TypeError("Parents must be iterable of size 2, of type Region or UUID")
+            parents = tuple(parents)
+            
+        # Set other default properties
+        self.name = name
+        self.Vindex = {}
+        self.PARENTS = parents
+        self.children = ()
+        self.x0 = x0
+        
+        # Lock immutable changes
+        self.LOCK = True
+    
+    # Accessor Methods
+    def move(self, dx):
+        """ Move relative to current x0. """
+        self.x0 += np.array(dx)
+        
+    def place(self, x):
+        """ Place absolute location. """
+        self.x0 = x
+        
+    def flatten(self, l = 0.):
+        """ Flattens the layer array to a single value. """
+        self.L = np.ones(self.L.shape) * l
+        
+    def __getitem__(self, v):
+        """ Lazy indexing of V """
+        if self.Vindex == None:
+            self.Vindex = {}
+        if v not in self.Vindex:
+            self.Vindex[v] = np.where(self.V == v)
+        return self.Vindex[v]
+    
+    def get_parents(self, lookup):
+        """ Returns node parents given a lookup table of ID's """
+        out = []
+        if self.PARENTS is not None:
+            for p in self.PARENTS:
+                out.append(lookup[p])
+        return out
+        
+    def get_children(self, lookup):
+        """ Returns node children given a lookup table of ID's """
+        out = []
+        for c in self.children:
+            out.append(lookup[c])
+        return out
+        
+    def __str__(self):
+        return str(self.V)
+        
+    # Modifier Methods
     def __add__(self, other):
-        """ Warning: Favors other if layer levels are the same. """
-        # Declarations
-        x0, R0, L0, V0 = np.array([self.x0, self.x1]).T, self.R, self.L, self.V   # Get both worlds with their coordinates and values
-        x1, R1, L1, V1 = np.array([other.x0, other.x1]).T, other.R, other.L, other.V 
+        """ Merges two regions together. Favors "other" if layer levels are the same.
+            Returns new Region. """
+        # Import values from objects
+        x0, dx0, R0, L0, V0 = self.x0, self.dx, self.R, self.L, self.V          # Get both worlds with their coordinates and values
+        x1, dx1, R1, L1, V1 = other.x0, other.dx, other.R, other.L, other.V     # --
+        
+        # Retrieve Relevant Data
+        x0, x1 = np.array([x0, x0+dx0-1]).T, np.array([x1, x1+dx1-1]).T             # Converting to legacy format for code compatability
         min_x, min_y, min_z = min(x0[0,0], x1[0,0]), min(x0[1,0], x1[1,0]), min([x0[2,0], x1[2,0]])  # Get the bounds in each coordinate
         max_x, max_y, max_z = max(x0[0,1], x1[0,1]), max(x0[1,1], x1[1,1]), max([x0[2,1], x1[2,1]])  # --
         dx, dy, dz = max_x-min_x+1, max_y-min_y+1, max_z-min_z+1
@@ -29,7 +122,7 @@ class Region(object):
         lt1[x1[0,0]:x1[0,1]+1, x1[1,0]:x1[1,1]+1, x1[2,0]:x1[2,1]+1]    = L1
         rt0[x0[0,0]:x0[0,1]+1, x0[1,0]:x0[1,1]+1, x0[2,0]:x0[2,1]+1, :] = R0
         rt1[x1[0,0]:x1[0,1]+1, x1[1,0]:x1[1,1]+1, x1[2,0]:x1[2,1]+1, :] = R1
-        V0, V1, L0, L1, R0, R1 = vt0, vt1, lt0, lt1, rt0, rt1                                       # Rename to original names
+        V0, V1, L0, L1, R0, R1 = vt0, vt1, lt0, lt1, rt0, rt1                       # Rename to original names
         
         # Create the overlap functions vectorized
         overlapV = np.vectorize(lambda v0, l0, v1, l1: v0 if l0 > l1 else v1)       # Define vectorized overlap function to favor v1 unless l0 is greater than l1
@@ -41,14 +134,20 @@ class Region(object):
         R = overlapV(R0, dim3(L0), R1, dim3(L1))                                    # Overlap world rotations based on maximum layer
         L = overlapL(L0, L1)                                                        # Update the layer information
         
-        return Region([min_x, min_y, min_z], [max_x, max_y, max_z], R, L, V)     # Return region
-    
-    def translate(self, x):
-        x0 = self.x0 + x
-        x1 = self.x1 + x
-        return Region(x0, x1, self.R.copy(), self.L.copy(), self.V.copy())
+        # Create new region
+        new_region = Region(V = V, x0 = (min_x, min_y, min_z), R = R, L = L, parents = (self, other))  # Return region
         
+        # Add new region to children
+        self.children += (new_region.ID,)
+        other.children += (new_region.ID,)
+        
+        return new_region
+    
     def rotate(self, r):
+        """ Rotate the region increments of 90 degrees about each axis.
+            Params: r: A size 3 vector containing # 90 degree increments to rotate about each axis of rotation.
+            Returns new Region.
+            FIXME: This method is untested and likely does not effect the right axes. """
         R, V, L = self.R.copy(), self.L.copy(), self.V.copy()                   # Get a copy of all object info
         R, V, L = np.rot90(R, r[0]), np.rot90(V, r[0]), np.rot90(L, r[0])       # Rotate each by first value
         R, V, L = np.swapaxes(R,0,2), np.swapaxes(V,0,2), np.swapaxes(L,0,2)    # Roll axes
@@ -59,31 +158,67 @@ class Region(object):
         R, V, L = np.rot90(R, r[2]), np.rot90(V, r[2]), np.rot90(L, r[2])       # Rotate each by third value
         R, V, L = np.swapaxes(R,0,2), np.swapaxes(V,0,2), np.swapaxes(L,0,2)    # Roll axes back to original
         R, V, L = np.swapaxes(R,1,2), np.swapaxes(V,1,2), np.swapaxes(L,1,2)    # --
-        x1 = np.array(V.shape) + self.x0                                        # Update non-origin corner
-        return Region(self.x0.copy(), x1, R, V, L)                              # Return new Region
         
-    def flip(self, vert = True):
+        return Region(V = V, x0 = self.x0, R = R, L = L)                        # Return new Region
+        
+    def flip(self, r):
+        """ Flips the array about one of the axes in r.
+            Params: r is a size 3 iterable of type bool.
+            Returns a new Region.
+            FIXME: This method is untested and likely does not effect the right axes. """
+        assert(not ((r[0] and r[1]) or (r[1] and r[2]) or (r[2] and r[0])), "Only one index may be true")
         R, V, L = self.R.copy(), self.L.copy(), self.V.copy()                   # Get a copy of all object info
-        if vert:                                                                # If vert is selected
+        if r[0]:                                                                # If vert is selected
             R, V, L = np.flipud(R), np.flipud(V), np.flipud(L)                  # Flip each up and down
-        else:                                                                   # Otherwise
+        elif r[1]:                                                              # Otherwise
             R, V, L = np.fliplr(R), np.fliplr(V), np.fliplr(L)                  # Flip each left and right
-        x1 = np.array(V.shape) + self.x0                                        # Update non-origin corner
-        return Region(self.x0.copy(), x1, R, V, L)                              # Return new Region
+        elif r[2]:
+            R, V, L = np.swapaxes(R,0,1), np.swapaxes(V,0,1), np.swapaxes(L,0,1)# Roll axes
+            R, V, L = np.fliplr(R), np.fliplr(V), np.fliplr(L)                  # Flip each left and right
+            R, V, L = np.swapaxes(R,1,0), np.swapaxes(V,1,0), np.swapaxes(L,1,0)# --
+        return Region(V = V, x0 = self.x0, R = R, L = L)                        # Return new Region
     
-    def __str__(self):
-        return str(self.V)
-    
+    # Storing and immutability
+    # Only dx, and self.V are immutable
+    def __setattr__(self, name, val):
+        """ Controls value saving, immutables and typing. """
+        if name in self.IMMUTABLE and self.LOCK:
+            raise KeyError("{0} is immutible.".format(name))
+        elif name == 'x0':
+            val = np.array(val)
+            if val.shape != (3,):
+                raise ValueError("{0} must be numpy array shape (3,). (Actual: {1})".format(name, val.shape))
+        if name in ('children', 'PARENTS') and val is not None:
+            val = list(val)
+            for i in range(len(val)):
+                if isinstance(val[i], Region):
+                    val[i] = val[i].ID
+            if not all([isinstance(val[i], type(self.ID)) for i in range(len(val))]):
+                raise TypeError("{0} must be iterable containing type Region or UUID".format(name))
+            val = tuple(val)
+        super(Region, self).__setattr__(name, val)
+        
     def __hash__(self):
-        return hash(str(self.x0)+str(self.x1)+str(self.R)+str(self.L)+str(self.V))
+        """ Hashes the string of all immutable properties. """
+        out = ''
+        for name in Region.IMMUTABLE:
+            out += str(self.__getattr__(name))
+        return hash(out)
         
     def __eq__(self, other):
-        x0_eq = np.all(self.x0 == other.x0)
-        x1_eq = np.all(self.x1 == other.x1)
-        R_eq  = np.all(self.R == other.R)
-        L_eq  = np.all(self.L == other.L)
-        V_eq  = np.all(self.V == other.V)
-        return np.all([x0_eq, x1_eq, R_eq, L_eq, V_eq])
+        """ Checks that all immutable properties are equals """
+        out = []
+        for name in Region.IMMUTABLE:
+            out.append(np.all(self.__getattr___(name) == other.__getattr__(name)))
+        return np.all(out)
+    
+    # Pickling and saving
+    # FIXME: Implement this
+    def __getstate__(self):
+        raise NotImplemented
+        
+    def __setstate__(self, state):
+        raise NotImplemented
         
 def block(block_id, x0 = (0,0,0), r = (0,0,0), l = 0.):
     """ Params: block_id: scalar; The search key for all block information.
@@ -93,24 +228,24 @@ def block(block_id, x0 = (0,0,0), r = (0,0,0), l = 0.):
     R = np.ones((1,1,1,3)) * r                                                  # Initialize the rotation tensor
     L = np.full((1,1,1), fill_value = float(l))                                 # Initialize the layer value tensor
     V = np.full((1,1,1), fill_value = float(block_id))                          # Initialize the block id tensor
-    return Region(x0, x0, R, L, V)                                              # Return the region
+    return Region(V = V, x0 = x0, R = R, L = L)                                 # Return the region
     
-def cube(block_id, x1, x0 = (0,0,0), r = (0,0,0), l = 0):
+def cube(block_id, dx, x0 = (0,0,0), r = (0,0,0), l = 0):
     """ Params: x0: vector (3,); Starting location vector.
                 x1: vector (3,); Ending location vector.
                 r : vector (3,); Rotation vector.
                 l : scalar; The layer the cube exists in (used in merging). """
-    dx, dy, dz = x1[0]-x0[0]+1, x1[1]-x0[1]+1, x1[2]-x0[2]+1
+    dx, dy, dz = dx[0], dx[1], dx[2]
     R = np.ones((dx, dy, dz, 3)) * r                                            # Set the rotation matrix using r vector
     L = np.full((dx, dy, dz), fill_value = float(l))                            # Initialize layer with layer value
     V = np.full((dx, dy, dz), fill_value = float(block_id))                     # Initialize the value with block_id
-    return Region(x0, x1, R, L, V)                                              # Return the region
+    return Region(V = V, x0 = x0, R = R, L = L)                                 # Return the region
 
       
 if __name__ == "__main__":
-    a = cube(1, [1,1,1])
-    b = cube(2, [1,3,3], [0,1,1])
-    c = block(3, [0,3,0])
+    a = cube(1, dx = [2,2,2])
+    b = cube(2, dx = [2,2,2], x0 = [2,1,1])
+    c = block(3, x0 = [0,3,0])
     print(a)
     print(b)
     print(c)
