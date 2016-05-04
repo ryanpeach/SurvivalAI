@@ -2,11 +2,12 @@ import numpy as np
 from multiprocessing import pool
 from uuid import uuid4
 
+KEY = {'AIR': 0, 'STONE': 1, 'STAIR': 2}
+
 class Region(object):
-    __slots__ = ('x0','dx','R','L','V','Vindex','PARENTS','children', 'ID', 'name', 'LOCK')
     IMMUTABLE = ('dx','V','ID','PARENTS')
     
-    def __init__(self, V, x0 = (0, 0), R = None, L = None, name = None, parents = None):
+    def __init__(self, V, x0 = (0, 0, 0), R = None, L = None, name = None, parents = None):
         # Set to not-immutable, so properties can be set
         self.LOCK = False
         
@@ -219,29 +220,27 @@ class Region(object):
         
     def __setstate__(self, state):
         raise NotImplemented
-        
-def block(block_id, x0 = (0,0,0), r = (0,0,0), l = 0.):
-    """ Params: block_id: scalar; The search key for all block information.
-                x0: vector (3,); Location vector.
-                r : vector (3,); Rotation vector.
-                l : scalar; The layer the block exists in (used in merging). """
-    R = np.ones((1,1,1,3)) * r                                                  # Initialize the rotation tensor
-    L = np.full((1,1,1), fill_value = float(l))                                 # Initialize the layer value tensor
-    V = np.full((1,1,1), fill_value = float(block_id))                          # Initialize the block id tensor
-    return Region(V = V, x0 = x0, R = R, L = L)                                 # Return the region
-    
-def cube(block_id, dx, x0 = (0,0,0), r = (0,0,0), l = 0):
-    """ Params: x0: vector (3,); Starting location vector.
-                x1: vector (3,); Ending location vector.
-                r : vector (3,); Rotation vector.
-                l : scalar; The layer the cube exists in (used in merging). """
-    dx, dy, dz = dx[0], dx[1], dx[2]
-    R = np.ones((dx, dy, dz, 3)) * r                                            # Set the rotation matrix using r vector
-    L = np.full((dx, dy, dz), fill_value = float(l))                            # Initialize layer with layer value
-    V = np.full((dx, dy, dz), fill_value = float(block_id))                     # Initialize the value with block_id
-    return Region(V = V, x0 = x0, R = R, L = L)                                 # Return the region
 
-      
+# Define Primitive Types
+class Cube(Region):
+    SIZE = 3
+    def __init__(self, d3, block_id = 0, x0 = (0,0,0), r = (0,0,0), l = 1.):
+        """ Params: x0: vector (3,); Starting location vector.
+                    x1: vector (3,); Ending location vector.
+                    r : vector (3,); Rotation vector.
+                    l : scalar; The layer the cube exists in (used in merging). """
+        dx, dy, dz = d3[0], d3[1], d3[2]
+        R = np.ones((dx, dy, dz, 3)) * r                                            # Set the rotation matrix using r vector
+        L = np.full((dx, dy, dz), fill_value = float(l))                            # Initialize layer with layer value
+        V = np.full((dx, dy, dz), fill_value = float(block_id))                     # Initialize the value with block_id
+        super(Region, self).__init__(V = V, x0 = x0, R = R, L = L)                  # Create the region
+
+class Block(Cube):
+    SIZE = 0
+    """ Blocks are just Cubes of size (1,1,1). """
+    def __init__(self, d0 = None, block_id = 0, x0 = (0,0,0), r = (0,0,0), l = 1.):
+        super(Cube, self).__init__(dx = (1,1,1), block_id = block_id, x0 = x0, r = r, l = l)
+  
 if __name__ == "__main__":
     a = cube(1, dx = [2,2,2])
     b = cube(2, dx = [2,2,2], x0 = [2,1,1])
