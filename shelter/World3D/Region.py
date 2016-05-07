@@ -1,16 +1,10 @@
 import numpy as np
-from multiprocessing import pool
-from uuid import uuid4
-
-KEY = {'AIR': 0, 'STONE': 1, 'STAIR': 2}
 
 class Region(object):
-    IMMUTABLE = ('dx','V','ID','PARENTS')
-    
-    def __init__(self, V, x0 = (0, 0, 0), R = None, L = None, name = None, parents = None):
-        # Set to not-immutable, so properties can be set
-        self.LOCK = False
+    """ A 3D space with a location, shape, value tensor, rotation tensor, and layer tensor.
+        Mutable, can be added, and contains a graph of all it's parents/children. """
         
+    def __init__(self, V, R = None, L = None, x0 = (0, 0, 0)):
         # Set immutable properties
         self.V = np.array(V)
         self.dx = np.array(V.shape)
@@ -33,29 +27,9 @@ class Region(object):
         else:
             self.L = L
         
-        # Type check parents to use ID's instead of the variable itself.
-        # This way our object is pickleable easily
-        # We can use a lookup table to find them from here
-        if parents is not None:
-            parents = list(parents)
-            if isinstance(parents[0], Region):
-                parents[0] = parents[0].ID
-            if isinstance(parents[1], Region):
-                parents[1] = parents[1].ID
-            if not isinstance(parents[0], type(self.ID)) \
-                and not isinstance(parents[1], type(self.ID)):
-                raise TypeError("Parents must be iterable of size 2, of type Region or UUID")
-            parents = tuple(parents)
-            
         # Set other default properties
-        self.name = name
         self.Vindex = {}
-        self.PARENTS = parents
-        self.children = ()
         self.x0 = x0
-        
-        # Lock immutable changes
-        self.LOCK = True
     
     # Accessor Methods
     def move(self, dx):
@@ -136,11 +110,7 @@ class Region(object):
         L = overlapL(L0, L1)                                                        # Update the layer information
         
         # Create new region
-        new_region = Region(V = V, x0 = (min_x, min_y, min_z), R = R, L = L, parents = (self, other))  # Return region
-        
-        # Add new region to children
-        self.children += (new_region.ID,)
-        other.children += (new_region.ID,)
+        new_region = Region(V = V, R = R, L = L, x0 = (min_x, min_y, min_z))  # Return region
         
         return new_region
     
@@ -183,9 +153,7 @@ class Region(object):
     # Only dx, and self.V are immutable
     def __setattr__(self, name, val):
         """ Controls value saving, immutables and typing. """
-        if name in self.IMMUTABLE and self.LOCK:
-            raise KeyError("{0} is immutible.".format(name))
-        elif name == 'x0':
+        if name == 'x0':
             val = np.array(val)
             if val.shape != (3,):
                 raise ValueError("{0} must be numpy array shape (3,). (Actual: {1})".format(name, val.shape))
@@ -199,57 +167,13 @@ class Region(object):
             val = tuple(val)
         super(Region, self).__setattr__(name, val)
         
-    def __hash__(self):
-        """ Hashes the string of all immutable properties. """
-        out = ''
-        for name in Region.IMMUTABLE:
-            out += str(self.__getattr__(name))
-        return hash(out)
-        
     def __eq__(self, other):
         """ Checks that all immutable properties are equals """
         out = []
-        for name in Region.IMMUTABLE:
+        for name in ('V','R','L'):
             out.append(np.all(self.__getattr___(name) == other.__getattr__(name)))
         return np.all(out)
-    
-    # Pickling and saving
-    # FIXME: Implement this
-    def __getstate__(self):
-        raise NotImplemented
-        
-    def __setstate__(self, state):
-        raise NotImplemented
 
-# Define Primitive Types
-class Cube(Region):
-    SIZE = 3
-    def __init__(self, d3, block_id = 0, x0 = (0,0,0), r = (0,0,0), l = 1.):
-        """ Params: x0: vector (3,); Starting location vector.
-                    x1: vector (3,); Ending location vector.
-                    r : vector (3,); Rotation vector.
-                    l : scalar; The layer the cube exists in (used in merging). """
-        dx, dy, dz = d3[0], d3[1], d3[2]
-        R = np.ones((dx, dy, dz, 3)) * r                                            # Set the rotation matrix using r vector
-        L = np.full((dx, dy, dz), fill_value = float(l))                            # Initialize layer with layer value
-        V = np.full((dx, dy, dz), fill_value = float(block_id))                     # Initialize the value with block_id
-        super(Region, self).__init__(V = V, x0 = x0, R = R, L = L)                  # Create the region
-
-class Block(Cube):
-    SIZE = 0
-    """ Blocks are just Cubes of size (1,1,1). """
-    def __init__(self, d0 = None, block_id = 0, x0 = (0,0,0), r = (0,0,0), l = 1.):
-        super(Cube, self).__init__(dx = (1,1,1), block_id = block_id, x0 = x0, r = r, l = l)
-  
-if __name__ == "__main__":
-    a = cube(1, dx = [2,2,2])
-    b = cube(2, dx = [2,2,2], x0 = [2,1,1])
-    c = block(3, x0 = [0,3,0])
-    print(a)
-    print(b)
-    print(c)
-    print((a+b)+c)
-    
 # class Pattern(object):
 #     # Define Globals
 #     GREATER_INDEX, LESSER_INDEX, EQUALS_INDEX = 0, 1, 2
