@@ -1,6 +1,7 @@
 import numpy as np
 
 KEY = {'AIR': 0, 'STONE': 1, 'STAIR': 2}
+LOOKUP = dict((v, k) for k, v in KEY.items())
 
 class Primitive(object):
     __slots__ = ('ID','SIZE')
@@ -39,7 +40,7 @@ if __name__ == "__main__":
     PATTERNS = {}
     
     # Get a list of all possible cubes
-    PATTERNS += dict([(key+"_Cube", Cube(block_id = val)) for key, val in KEY.items()])
+    PATTERNS += dict((key+"_Cube", Cube(block_id = val)) for key, val in KEY.items())
     
     # Create a stair piece, input_array = [x0, y0, z0, height, width]
     P1 = PATTERNS['STONE_Cube']

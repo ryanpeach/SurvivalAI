@@ -174,56 +174,18 @@ class Region(object):
             out.append(np.all(self.__getattr___(name) == other.__getattr__(name)))
         return np.all(out)
 
-# class Pattern(object):
-#     # Define Globals
-#     GREATER_INDEX, LESSER_INDEX, EQUALS_INDEX = 0, 1, 2
-    
-#     def __init__(self, block_options):
-#         """ Block options is a 2D array that lists blocks by their number in axis 0, and lists options for that block in axis 1 """
-#         # Create blocks list
-#         self.blocks, self.Nobjs = np.array(block_options), len(block_options)
+    def draw(self):
+        # Source http://matplotlib.org/mpl_toolkits/mplot3d/tutorial.html
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
         
-#         # The location poly in 4D space. shape = (#obj, [x,y,z,l], [x,*poly])
-#         # The size poly in 3D space. shape = (#obj, [dx,dy,dz], [x,*poly])
-#         # The rotation poly in 3D space. shape = (#obj, [rx,ry,rz], [x,*poly])
-#         # Combine into self._X
-#         self._X  = np.zeros([self.Nobjs, 10, 3])
-        
-#         # Similarly, there are constraints
-#         self.GREATER = -np.ones([self.Nobjs, 10, 3])
-#         self.LESSER  =  np.ones([self.Nobjs, 10, 3])
-#         self.EQUALS  =  np.ones([self.Nobjs, 10, 3])
-        
-#         # And we may select any of them we wish by signaling True in axis 3, following:
-#         # shape = (#obj, dim, poly, [GREATER, LESSER, EQUALS])
-#         self.SEL     =  np.full([self.Nobjs, 10, 3, 3], fill_value=False)
-        
-#     def matrix_constraint(value, obj_n, dim_n, poly_n, sel_index, activate = True):
-#         """ Can be used to set many constraints at once, given a array value. """
-#         self.GREATER[obj_n, dim_n, poly_n] = value[:,:,:,self.GREATER_INDEX]
-#         self.LESSER[obj_n, dim_n, poly_n]  = value[:,:,:,self.LESSER_INDEX]
-#         self.EQUALS[obj_n, dim_n, poly_n]  = value[:,:,:,self.EQUALS_INDEX]
-#         self.SEL[obj_n, dim_n, poly_n, sel_index]  = activate
-    
-#     def constraint(value, obj_n, dim_n, poly_n, sel_index, activate = True):
-#         """ Used to set just one type of constraint at a time. """
-#         if sel_index == self.GREATER_INDEX:
-#             self.GREATER[obj_n, dim_n, poly_n] = value
-#         elif sel_index == self.LESSER_INDEX:
-#             self.LESSER[obj_n, dim_n, poly_n]  = value
-#         elif sel_index == self.EQUALS_INDEX:
-#             self.EQUALS[obj_n, dim_n, poly_n]  = value
-#         else:
-#             raise KeyError("Selection Index {0} not an option.".format(sel_index))
+        out, names = [], []
+        for v in np.unique(self.V):
+            X, Y, Z = np.where(self.V == v)
+            out.append(ax.scatter(X, Y, Z, zdir='z', s=20, label = LOOKUP[v], depthshade=True))
+            names.append(LOOKUP[v])
             
-#         self.SEL[obj_n, dim_n, poly_n, kind_index]  = activate
-            
-#     def __copy__(self):
-#         out = Pattern(deepcopy(self.blocks))
-#         out._X = deepcopy(self._X)
-#         out.GREATER = self.GREATER
-#         out.LESSER  = self.LESSER
-#         out.EQUALS  = self.EQUALS
-#         out.SEL     = self.SEL
-#         out.WORLD   = self.WORLD
-#         return out
+        ax.legend(handles = out, labels = names)
+        plt.show()
