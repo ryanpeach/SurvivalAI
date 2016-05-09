@@ -1,13 +1,13 @@
 import numpy as np
 from uuid import uuid4
-from World3D import Primitive
+from World3D import Primitive, mat_mul
 
 # Define Patterns
 class Pattern(Primitive):
     """ Patterns take callable, single-value functions (such as Blueprint and Pattern),
         and, initialized with certain matricies, return new regions. """
 
-    def __init__(self, P1, P2, W, B, Wr = None, Br = None, I = None, i = 0, Wy = None, By = None):
+    def __init__(self, P, W, Wr, I):
         """ m = P1.SIZE[0] + P2.SIZE[0]
             n = self.SIZE[0]
             W:  shape (n,m)
@@ -20,73 +20,40 @@ class Pattern(Primitive):
         # Set ID
         self.ID = uuid4()
         
-        # Check types
-        W, B = np.array(W), np.array(B)
-        assert(isinstance(n, int), "i must be an integer.")
-        
         # Get sizes from inputs
-        m = P1.SIZE[0] + P2.SIZE[0]                                             # An important size for the matricies in this class
-        n = W.shape[1]                                                          # Size of input is determined by x dimension of W
+        self.OUT_SIZE = m = P.SIZE+7                                            # An important size for the matricies in this class
+        self.SIZE = n = W[1].shape[1]                                           # Size of input is determined by x dimension of
         
         # Check matrix sizes
-        assert(W.shape  = (n,m), "W must be shape (n,m).")
-        assert(B.shape  = (m,),  "B must be shape (m,).")
-        
-        # Handle recursive elements
-        if Wr is not None and Br is not None and I is not None:
-            I = np.array(I)
-            assert(Wr.shape = (n,n), "Wr must be shape (n,n).")
-            assert(Br.shape = (n,),  "Br must be shape (n,).")
-            assert(N.shape  = (1,n), "N must be shape (1,n).")
-            self.RECURSIVE = True
-        else:
-            self.RECURSIVE = False
-        
+        assert all([w.shape == (n,m) for w in W[1:]]), "all(W[1:]) must be shape (n,m)."
+        assert all([w.shape == (n,n) for w in Wr[1:]]), "all(Wr[1:]) must be shape (n,n)."
+        assert all([i.shape == (1,n) for i in I[1:]]), "all(I[1:]) must be shape (1,n)." 
+        assert W[0].shape == (m,),  "W[0] must be shape (m,)."
+        assert Wr[0].shape == (n,),  "Wr[0] must be shape (n,)."
+        assert I[0].shape == (1,), "I[0] must be int or size 1 array." 
+
         # Set Parameters
-        self.P1, self.P2 = P1, P2                                               # Set elements
-        self.W, self.B = W, B                                                   # Set weights
-        self.Wr, self.Br = Wr, Br                                               # Set recursive weights
-        self.I, self.i = I, i                                                   # Set iteration number elements
+        self.P = P                                                              # Set elements
+        self.W = W                                                              # Set weights
+        self.Wr = Wr                                                            # Set recursive weights
+        self.I                                                                  # Set iteration number elements
         
-        if Wy is not None and By is not None:
-            Wy, By = np.array(Wy), np.array(By)
-            my, ny = P1.SIZE[1] + P2.SIZE[1], Wy.shape[1]
-            assert(Wy.shape = (ny, my))
-            assert(By.shape = (my, ))
-        else:
-            my, ny = 0, 0
-        self.OUT_SIZE = (m, my)
-        self.SIZE = (n,ny)
-        
-        self.Wy, self.By = Wy, By                 # Set the y matricies
-        
-    def __call__(self, x, y = None):
+    def __call__(self, x):
         x = np.array(x)
-        out = self._call_once(x,y)
-        if self.RECURSIVE:                                                      # If this pattern is recursive
-            z = (np.dot(self.I,input_array)+self.i)[0]                          # Get the number of times to loop
-            for i in np.arange(z):                                              # Loop z number either
-                out += self._call_once(x,y)
+        out = self._call_once(x)                                                # Call the first time
+        z = mat_mul(x, self.I)[0]                                               # Get the number of times to loop
+        for i in np.arange(z):                                                  # Loop z number either
+            x = mat_mul(x, self.Wr)                                             # Modify x for next iteration
+            out += self._call_once(x)                                           # Run next iteration and add to out
         return out
         
-    def _call_once(self, x, y = None):
+    def _call_once(self, x):
         """ Given some array x, shape (n,), returns a Blueprint by summing P1 and P2
             recursively over some number of iterations. """
-        
-        # Handle y if not None
-        if y is not None:
-            y = np.array(y)
-            in_y = np.dot(self.Wy, y) + self.By
-            y1, y2 = in_y[:self.P1.SIZE[1]], in_y[self.P1.SIZE[1]:]
-        else:
-            y1, y2 = None
-            
-        # Handle x
-        in_x = np.dot(self.W, x) + self.B                                       # Get the array in a shape P1 and P2 can accept
-        x1, x2 = in_x[:self.P1.SIZE[0]], in_x[self.P1.SIZE[0]:]
-        r1 = self.P1(x1, y1)                                                    # Get the region each pattern returns
-        r2 = self.P2(x2, y2)                                                    # --
-        return r1 + r2                                                          # Sum them together
+        v = mat_mul(x, self.W)                                                  # Get the array in a shape P1 and P2 can accept
+        x0 = v[:self.OUT_SIZE-7]
+        y0 = v[self.OUT_SIZE-7:]
+        return self.P(x0)(y0)                                                   # Get the region each pattern returns
 
     def __repr__(self):
         """ Prints this Pattern's ID """
@@ -113,3 +80,4 @@ class Pattern(Primitive):
         
     def __setstate__(self, state):
         raise NotImplemented
+        

@@ -1,29 +1,40 @@
-import numpy as np
+# Python Imports
+from copy import copy
 
-class Region(object):
+# Library Imports
+import numpy as np
+from scipy.ndimage.interpolation import rotate as nd_rot90
+
+# Local Imports
+from World3D import Primitive
+
+class Region(Primitive):
     """ A 3D space with a location, shape, value tensor, rotation tensor, and layer tensor.
         Mutable, can be added, and contains a graph of all it's parents/children. """
-        
+    SIZE = 7
     def __init__(self, V, R = None, L = None, x0 = (0, 0, 0)):
-        # Set immutable properties
-        self.V = np.array(V)
-        self.dx = np.array(V.shape)
-        self.ID = uuid4()
+        super(Region, self).__init__()
         
-        # Set mutable properties
+        # Set required properties with types
+        self.V = np.array(V, dtype='int')
+        self.dx = np.array(V.shape, dtype='int')
+        
+        # Set default properties
         # Default R is same shape as V with an extra dimension size 3
         if R is None:
             sx, sy, sz = V.shape
-            self.R = np.zeros((sx,sy,sz,3))
+            self.R = np.zeros((sx,sy,sz,3), dtype='int')
         else:
             self.R = R
         
         # Default L is the same shape as V, either filled with a single value L, or 0
         if L is None:
-            if isinstance(L, (int, long, float)):
-                self.L = np.full(V.shape, fill_value = L)
+            if isinstance(L, int):
+                self.L = np.full(V.shape, fill_value = L, dtype='int')
+            elif isinstance(L, float):
+                raise TypeError("L may not be a float")
             else:
-                self.L = np.zeros(V.shape)
+                self.L = np.zeros(V.shape, dtype='int')
         else:
             self.L = L
         
@@ -32,17 +43,27 @@ class Region(object):
         self.x0 = x0
     
     # Accessor Methods
+    def __call__(self, x):
+        new_loc = np.array(x[:3], dtype='int')
+        new_L = self.L-np.min(self.L)+x[6]
+        out = Region(V = self.V, R = self.R, L = new_L, x0 = new_loc)
+        out = out.rotate(x[3:6])                                                # FIXME: Creates yet another Region, waste of memory, otherwise complicated
+        return out
+        
     def move(self, dx):
         """ Move relative to current x0. """
-        self.x0 += np.array(dx)
+        new_loc = np.array(self.x0, dtype='int')+np.array(dx, dtype='int')
+        return Region(V = self.V, R = self.R, L = self.L, x0 = new_loc)
         
     def place(self, x):
         """ Place absolute location. """
-        self.x0 = x
+        new_loc = np.array(x, dtype='int')
+        return Region(V = self.V, R = self.R, L = self.L, x0 = new_loc)
         
-    def flatten(self, l = 0.):
+    def flatten(self, l = 0):
         """ Flattens the layer array to a single value. """
-        self.L = np.ones(self.L.shape) * l
+        new_L = np.ones(self.L.shape, dtype='int') * int(l)
+        return Region(V = self.V, R = self.R, L = new_L, x0 = self.x0)
         
     def __getitem__(self, v):
         """ Lazy indexing of V """
@@ -52,21 +73,6 @@ class Region(object):
             self.Vindex[v] = np.where(self.V == v)
         return self.Vindex[v]
     
-    def get_parents(self, lookup):
-        """ Returns node parents given a lookup table of ID's """
-        out = []
-        if self.PARENTS is not None:
-            for p in self.PARENTS:
-                out.append(lookup[p])
-        return out
-        
-    def get_children(self, lookup):
-        """ Returns node children given a lookup table of ID's """
-        out = []
-        for c in self.children:
-            out.append(lookup[c])
-        return out
-        
     def __str__(self):
         return str(self.V)
         
@@ -117,38 +123,25 @@ class Region(object):
     def rotate(self, r):
         """ Rotate the region increments of 90 degrees about each axis.
             Params: r: A size 3 vector containing # 90 degree increments to rotate about each axis of rotation.
-            Returns new Region.
-            FIXME: This method is untested and likely does not effect the right axes. """
-        R, V, L = self.R.copy(), self.L.copy(), self.V.copy()                   # Get a copy of all object info
-        R, V, L = np.rot90(R, r[0]), np.rot90(V, r[0]), np.rot90(L, r[0])       # Rotate each by first value
-        R, V, L = np.swapaxes(R,0,2), np.swapaxes(V,0,2), np.swapaxes(L,0,2)    # Roll axes
-        R, V, L = np.swapaxes(R,1,2), np.swapaxes(V,1,2), np.swapaxes(L,1,2)    # --
-        R, V, L = np.rot90(R, r[1]), np.rot90(V, r[1]), np.rot90(L, r[1])       # Rotate each by second value
-        R, V, L = np.swapaxes(R,0,2), np.swapaxes(V,0,2), np.swapaxes(L,0,2)    # Roll axes
-        R, V, L = np.swapaxes(R,1,2), np.swapaxes(V,1,2), np.swapaxes(L,1,2)    # --
-        R, V, L = np.rot90(R, r[2]), np.rot90(V, r[2]), np.rot90(L, r[2])       # Rotate each by third value
-        R, V, L = np.swapaxes(R,0,2), np.swapaxes(V,0,2), np.swapaxes(L,0,2)    # Roll axes back to original
-        R, V, L = np.swapaxes(R,1,2), np.swapaxes(V,1,2), np.swapaxes(L,1,2)    # --
+            Returns new Region. """
+            
+        # Rotate around 1st axis
+        V = nd_rot90(self.V, int(r[0]*90), axes=(0,1))
+        R = nd_rot90(self.R, int(r[0]*90), axes=(0,1))
+        L = nd_rot90(self.L, int(r[0]*90), axes=(0,1))
         
-        return Region(V = V, x0 = self.x0, R = R, L = L)                        # Return new Region
+        # Rotate around 2nd axis
+        V = nd_rot90(V, int(r[1]*90), axes=(1,2))
+        R = nd_rot90(R, int(r[1]*90), axes=(1,2))
+        L = nd_rot90(L, int(r[1]*90), axes=(1,2))
         
-    def flip(self, r):
-        """ Flips the array about one of the axes in r.
-            Params: r is a size 3 iterable of type bool.
-            Returns a new Region.
-            FIXME: This method is untested and likely does not effect the right axes. """
-        assert(not ((r[0] and r[1]) or (r[1] and r[2]) or (r[2] and r[0])), "Only one index may be true")
-        R, V, L = self.R.copy(), self.L.copy(), self.V.copy()                   # Get a copy of all object info
-        if r[0]:                                                                # If vert is selected
-            R, V, L = np.flipud(R), np.flipud(V), np.flipud(L)                  # Flip each up and down
-        elif r[1]:                                                              # Otherwise
-            R, V, L = np.fliplr(R), np.fliplr(V), np.fliplr(L)                  # Flip each left and right
-        elif r[2]:
-            R, V, L = np.swapaxes(R,0,1), np.swapaxes(V,0,1), np.swapaxes(L,0,1)# Roll axes
-            R, V, L = np.fliplr(R), np.fliplr(V), np.fliplr(L)                  # Flip each left and right
-            R, V, L = np.swapaxes(R,1,0), np.swapaxes(V,1,0), np.swapaxes(L,1,0)# --
-        return Region(V = V, x0 = self.x0, R = R, L = L)                        # Return new Region
-    
+        # Rotate around 3rd axis
+        V = nd_rot90(V, int(r[2]*90), axes=(2,0))
+        R = nd_rot90(R, int(r[2]*90), axes=(2,0))
+        L = nd_rot90(L, int(r[2]*90), axes=(2,0))
+        
+        return Region(V = V, R = R, L = L, x0 = self.x0)                        # Return new Region, same origin
+        
     # Storing and immutability
     # Only dx, and self.V are immutable
     def __setattr__(self, name, val):
@@ -167,13 +160,6 @@ class Region(object):
             val = tuple(val)
         super(Region, self).__setattr__(name, val)
         
-    def __eq__(self, other):
-        """ Checks that all immutable properties are equals """
-        out = []
-        for name in ('V','R','L'):
-            out.append(np.all(self.__getattr___(name) == other.__getattr__(name)))
-        return np.all(out)
-
     def draw(self):
         # Source http://matplotlib.org/mpl_toolkits/mplot3d/tutorial.html
         import matplotlib.pyplot as plt
@@ -189,3 +175,6 @@ class Region(object):
             
         ax.legend(handles = out, labels = names)
         plt.show()
+        
+    def __copy__(self):
+        return Region(V = self.V.copy(), R = self.R.copy(), L = self.L.copy(), x0 = tuple(self.x0))
