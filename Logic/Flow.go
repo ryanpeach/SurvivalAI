@@ -1,5 +1,11 @@
 package Logic
 
+type Process template {
+    SetValue()
+    GetValue()
+    Run()
+}
+
 type DataFlow struct {
     Name string
     output *Param
