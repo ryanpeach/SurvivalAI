@@ -107,3 +107,7 @@ func (r1 Region) add(r2 *Region) Region {
         x, y, z: x0, y0, z0
     }
 }
+
+func (r Region) Draw() {
+    return
+}
