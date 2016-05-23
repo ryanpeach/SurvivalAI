@@ -1,8 +1,6 @@
 package flow
 
 import (
-    "fmt"
-    "time"
     "testing"
 )
 
@@ -12,22 +10,32 @@ func TestPlus(t *testing.T) {
     f_out := make(chan DataOut)
     f_stop := make(chan bool)
     f_err := make(chan FlowError)
+    
+    // Test Params
+    a, b := float64(2), float64(3)
+    c := a + b
 
     // Run block and put a timeout on the stop channel
-    go plusblk.Run(ParamValues{"A": 2, "B": 3}, f_out, f_stop, f_err)
-    go timeout(f_stop, 1000)
+    go plusblk.Run(ParamValues{"A": a, "B": b}, f_out, f_stop, f_err)
+    //go Timeout(f_stop, 1000)
     
     // Wait for output or error
-    switch {
-        case out := <-f_out:
-        case err := <-f_err:
-            if !err.Ok {
-                t.Error("Plus.Run returned FlowError: ", err.Info)
-            }
+    var out DataOut
+    var cont bool = true
+    for cont {
+        select {
+            case out = <-f_out:
+                cont = false
+            case err := <-f_err:
+                if !err.Ok {
+                    t.Error("Plus.Run returned FlowError: ", err.Info)
+                    return
+                }
+        }
     }
     
     // Test the output
-    if out != 5 {
-        t.Error("Plus.Run returned ", out, " instead of 5.")
+    if out.Values["OUT"] != c {
+        t.Error("Plus.Run returned ", out.Values, " instead of ", c, ".")
     }
 }

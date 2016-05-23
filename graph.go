@@ -38,8 +38,8 @@ func (g Graph) Run(inputs ParamValues,
                   stop chan bool,
                   err chan FlowError) {
     // Check types to ensure inputs are the type defined in input parameters
-    if !multiCheckTypes(inputs, g.inputs) {
-      return FlowError{Ok: false, Info: "Inputs are impropper types.", Addr: &g}
+    if !checkTypes(inputs, g.input_types) {
+      return FlowError{Ok: false, Info: "Inputs are impropper types.", Addr: g}
     }
 
     // Declare variables
@@ -155,22 +155,6 @@ func (g Graph) Run(inputs ParamValues,
 
 // Checks if all keys in params are present in values
 // And that all values are of their appropriate types as labeled in in params
-func multiCheckTypes(values ParamValues, params MultiParamTypes) (ok bool) {
-    var val interface{}
-    for name, p_list := range params {
-        for kind := range p_list {
-            val, exists = values[name]
-            switch x := val.(type) {
-                case !exists:
-                    return false
-                case x != kind:
-                    return false
-            }
-        }
-    }
-    return true
-}
-
 func checkTypes(values ParamValues, params ParamTypes) (ok bool) {
     var val interface{}
     for name, kind := range params {

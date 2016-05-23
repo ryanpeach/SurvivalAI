@@ -4,8 +4,8 @@ import "time"
 
 func Plus(id InstanceID) FunctionBlock {
     // Create Plus block
-    ins := ParamTypes{"A": "float32", "B": "float32"}
-    outs := ParamTypes{"OUT": "float32"}
+    ins := ParamTypes{"A": "float", "B": "float"}
+    outs := ParamTypes{"OUT": "float"}
     
     // Define the function as a closure
     runfunc := func(inputs ParamValues,
@@ -13,7 +13,7 @@ func Plus(id InstanceID) FunctionBlock {
                      stop chan bool,
                      err chan FlowError) {
         data := make(ParamValues)
-        data["OUT"] = inputs["A"].(float32) + inputs["B"].(float32)
+        data["OUT"] = inputs["A"].(float64) + inputs["B"].(float64)
         out := DataOut{BlockID: id, Values: data}
         outputs <- out
         return

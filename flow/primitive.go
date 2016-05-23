@@ -1,5 +1,7 @@
 package flow
 
+import "fmt"
+
 const (
   STOPPING = "STOP" // Used to declare a stopping error
 )
@@ -8,7 +10,7 @@ const (
 type FlowError struct{
     Ok bool
     Info string
-    Addr *FunctionBlock
+    BlockID InstanceID
 }
 
 // Used to represent a parameter to a FunctionBlock
@@ -20,7 +22,7 @@ type Parameter struct {
 }
 func (p Parameter) GetName() string {return p.paramName}
 func (p Parameter) GetType() TypeStr {return p.paramType}
-func (p Parameter) GetBlock() *FunctionBlock {return p.funcBlock}
+func (p Parameter) GetBlock() InstanceID {return p.blockID}
 
 // Used to store the outputs of a FunctionBlock, while keeping it's reference.
 type DataOut struct {
@@ -64,14 +66,14 @@ func (m PrimitiveBlock) GetName() string {return m.name}
 
 // Returns copies of all parameters in FunctionBlock
 func (m PrimitiveBlock) GetParams() (inputs []Parameter, outputs []Parameter) {
-    inputs = make([]Parameter, len(m.inputs))
+    inputs = make([]Parameter, 0, len(m.inputs))
     for name, t := range m.inputs {
-      append(inputs, Parameter{funcBlock: &m, paramName: name, paramType: t})
+        inputs = append(inputs, Parameter{blockID: m.id, paramName: name, paramType: t})
     }
 
-    outputs = make([]Parameter, len(m.outputs))
+    outputs = make([]Parameter, 0, len(m.outputs))
     for name, t := range m.outputs {
-      append(outputs, Parameter{funcBlock: &m, paramName: name, paramType: t})
+        outputs = append(outputs, Parameter{blockID: m.id, paramName: name, paramType: t})
     }
     return
 }
@@ -83,7 +85,8 @@ func (m PrimitiveBlock) Run(inputs ParamValues,
                             err chan FlowError) {
     // Check types to ensure inputs are the type defined in input parameters
     if !checkTypes(inputs, m.inputs) {
-      return FlowError{Ok: false, Info: "Inputs are impropper types.", Addr: &m}
+        err <- FlowError{Ok: false, Info: "Inputs are impropper types.", BlockID: m.id}
+        return
     }
 
     // Duplicate the given channel to pass to the enclosed function
@@ -94,19 +97,22 @@ func (m PrimitiveBlock) Run(inputs ParamValues,
     go m.fn(inputs, f_out, f_stop, f_err)
 
     // Wait for a stop or an output
-    var temp_err FlowError
     for {
         select {
             case f_return := <-f_out:                 // If an output is returned
                 if checkTypes(f_return.Values, m.outputs) {  // Check the types with output parameters
                     err <- FlowError {Ok: true}       // If good, return no error
-                    outputs <- DataOut{&m, f_return.Values}  // Along with the data
+                    outputs <- DataOut{m.id, f_return.Values}  // Along with the data
                     return                            // And stop the function
+                } else {
+                    fmt.Println(f_return)
+                    err <- FlowError{Ok: false, Info: "Wrong output type.", BlockID: m.id}
+                    return
                 }
             case <-stop:                              // If commanded to stop externally
                 f_stop <- true                        // Pass it on to subfunction
                 return                                // And stop immediately
-            case temp_err = f_err:                    // If there is an error, save it
+            case temp_err := <-f_err:                 // If there is an error, save it
                 if !temp_err.Ok {                     // See if it is bad
                     err <- temp_err                   // If it is bad, pass it up the chain
                     return                            // And stop the function
@@ -126,15 +132,16 @@ func New(name string, function DataStream, inputs ParamTypes, outputs ParamTypes
 
 // Checks if all keys in params are present in values
 // And that all values are of their appropriate types as labeled in in params
-func checkTypesPrimitive(values ParamValues, params ParamTypes) (ok bool) {
-    var val interface{}
-    for name, kind := range params {
-        val, exists = values[name]
-        switch x := val.(type) {
-            case !exists:
-                return false
-            case x != kind:
-                return false
+func checkTypes(values ParamValues, params ParamTypes) (ok bool) {
+    for name, typestr := range params {
+        val, _ := values[name]
+        switch val.(type) {
+            case string:
+                if typestr != "string" {return false}
+            case int:
+                if typestr != "int" {return false}
+            case float32:
+                if typestr != "float" {return false}
         }
     }
     return true
