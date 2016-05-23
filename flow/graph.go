@@ -1,12 +1,19 @@
-package graph
+package flow
+
+type ParamMap map[string]Parameter
+type MultiParamMap map[string][]Parameter
+type MultiParamTypes map[string][]TypeStr
+type NodeMap map[string]FunctionBlock
+type EdgeMap map[*FunctionBlock][]*FunctionBlock
 
 type Graph struct {
-    name string
-    nodes map[string]FunctionBlock
-    edges map[FunctionBlock][]FunctionBlock
-    inputs      map[string][]Parameter
-    input_types map[string]Type
-    outputs     map[string]Parameter
+    name        string
+    id          InstanceID
+    nodes       NodeMap
+    edges       EdgeMap
+    inputs      MultiParamMap
+    input_types ParamTypes
+    outputs     ParamMap
 }
 
 // Returns a copy of FunctionBlock's name
@@ -14,30 +21,31 @@ func (g Graph) GetName() string {return g.name}
 
 // Returns copies of all parameters in FunctionBlock
 func (g Graph) GetParams() (inputs []Parameter, outputs []Parameter) {
-    inputs := make([]Parameter, len(g.inputs)),
+    inputs = make([]Parameter, 0, len(g.inputs))
     for name, p_list := range g.inputs {
-        inputs.append(Parameter{FuncBlock: &g, ParamName: name, ParamType: p_list[0].ParamType})
+        append(inputs, Parameter{blockID: g.id, paramName: name, paramType: p_list[0].paramType})
     }
 
-    outputs := make([]Parameter, len(g.outputs)),
+    outputs = make([]Parameter, 0, len(g.outputs))
     for name, p := range g.outputs {
-        outputs.append(Parameter{FuncBlock: &g, ParamName: name, ParamType: p.ParamType})
+        append(outputs, Parameter{blockID: g.id, paramName: name, paramType: p.paramType})
     }
+    return
 }
 
-fun (g Graph) Run(inputs KeyValues,
-                  outputs chan KeyValues,
+func (g Graph) Run(inputs ParamValues,
+                  outputs chan ParamValues,
                   stop chan bool,
                   err chan FlowError) {
     // Check types to ensure inputs are the type defined in input parameters
-    if !checkTypes(inputs, g.inputs) {
+    if !multiCheckTypes(inputs, g.inputs) {
       return FlowError{Ok: false, Info: "Inputs are impropper types.", Addr: &g}
     }
 
     // Declare variables
     all_waiting   := make(map[string]*FuncBlock)
     all_running   := make(map[string]*FuncBlock)
-    all_inputs    := make(map[string]KeyValues)
+    all_inputs    := make(map[string]ParamValues)
     all_inparams  := make(map[string][]Parameter)
     all_outparams := make(map[string][]Parameter)
     all_stops     := make(map[string](chan bool))
@@ -46,7 +54,7 @@ fun (g Graph) Run(inputs KeyValues,
 
     // Iterates through all given inputs and adds them to method's all_inputs map
     // Also sets all_inparams, all_outparams, and all_blocks
-    func init() {
+    loadvars := func() {
         for name, val := range inputs {
             p_list := g.inputs[name]     // Lookup this parameter in graph inputs
             for _, p := range p_list {  // Iterate through parameters in p_list
@@ -54,17 +62,17 @@ fun (g Graph) Run(inputs KeyValues,
                 f_name  := f_block.GetName()
                 _, exists := f_queue[f_name]
                 if !exists {
-                    // Get the input parameters and create a KeyValues space for the function
+                    // Get the input parameters and create a ParamValues space for the function
                     f_ins, f_outs := f_block.GetParams()
-                    all_inputs[f_name] := make(KeyValues, 0, cap(f_inputs))
-                    all_inparams[f_name] := f_ins
-                    all_outparams[f_name] := f_outs
+                    all_inputs[f_name] = make(ParamValues, 0, cap(f_inputs))
+                    all_inparams[f_name] = f_ins
+                    all_outparams[f_name] = f_outs
 
                     // Add f_block to all_waiting
-                    all_waiting[f_name] := f_block
+                    all_waiting[f_name] = f_block
                 }
 
-                all_inputs[f_name][p.GetName()] := val
+                all_inputs[f_name][p.GetName()] = val
             }
         }
     }
@@ -73,18 +81,18 @@ fun (g Graph) Run(inputs KeyValues,
     // to see if all of their inputs have been set.
     // If so, it makes it runs them.
     // Deleting them from waiting, and placing them in running.
-    func checkWaiting() {
+    checkWaiting := func() {
         for f_name, f_block := range all_waiting {
             f_p := f_params[f_name]
             f_ins := f_inputs[f_name]
             switch {
                 case len(f_p) == len(f_ins):
-                    f_outs := make(chan KeyValues)
+                    f_outs := make(chan ParamValues)
                     f_stop := make(chan bool)
                     f_err  := make(chan FlowError)
                     go f_block.Run(f_ins, f_outs, f_stop, f_err)
-                    all_running[f_name] := f_block
-                    all_outputs[f_name], all_stops[f_name], all_errs[fname] := f_outs, f_stop, f_err
+                    all_running[f_name] = f_block
+                    all_outputs[f_name], all_stops[f_name], all_errs[fname] = f_outs, f_stop, f_err
                     delete(all_waiting[f_name])
                 case len(f_p) < len(f_ins):
                     err <- FlowError{Ok: false, Info: "Parameter Collision", Addr: &g}
@@ -97,7 +105,7 @@ fun (g Graph) Run(inputs KeyValues,
     // to see if all of their inputs have been set.
     // If so, it makes it runs them.
     // Deleting them from waiting, and placing them in running.
-    func checkRunning() {
+    checkRunning := func() {
       select {
           case f_return := <-data_out:                       // If an output is returned
               f_name := f_return.FuncBlock.GetName()         // Get the name of the block it belongs to
@@ -119,7 +127,7 @@ fun (g Graph) Run(inputs KeyValues,
       }
     }
 
-    func sendError(e interface{}) {
+    sendError := func(e interface{}) {
       switch E := e.(type) {
       case FlowError:
         err <- E
@@ -129,7 +137,7 @@ fun (g Graph) Run(inputs KeyValues,
       allStop()
     }
 
-    func allStop() {
+    allStop := func() {
       for f_name, stop := range all_stops {
         stop <- true
         for {
@@ -145,13 +153,25 @@ fun (g Graph) Run(inputs KeyValues,
 
 }
 
-func (g Graph) New(label string, m1 *Method, n1 string, m2 *Method, n2 string) (ok bool) {
-
-}
-
 // Checks if all keys in params are present in values
 // And that all values are of their appropriate types as labeled in in params
-func checkTypes(values KeyValues, params map[string]Type) (ok bool) {
+func multiCheckTypes(values ParamValues, params MultiParamTypes) (ok bool) {
+    var val interface{}
+    for name, p_list := range params {
+        for kind := range p_list {
+            val, exists = values[name]
+            switch x := val.(type) {
+                case !exists:
+                    return false
+                case x != kind:
+                    return false
+            }
+        }
+    }
+    return true
+}
+
+func checkTypes(values ParamValues, params ParamTypes) (ok bool) {
     var val interface{}
     for name, kind := range params {
         val, exists = values[name]
@@ -163,8 +183,4 @@ func checkTypes(values KeyValues, params map[string]Type) (ok bool) {
         }
     }
     return true
-}
-
-func (g Graph) Draw() (ok bool) {
-
 }

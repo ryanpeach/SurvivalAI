@@ -1,71 +1,86 @@
-package primitives
+package flow
 
-const {
-  STOPPING := "STOP"
-}
+const (
+  STOPPING = "STOP" // Used to declare a stopping error
+)
 
+// Used to declare an error in the flow pipeline
 type FlowError struct{
     Ok bool
     Info string
     Addr *FunctionBlock
 }
 
+// Used to represent a parameter to a FunctionBlock
+// Everything is private, as this struct is immutable
 type Parameter struct {
-    funcBlock *FunctionBlock
+    blockID   InstanceID
     paramName string
-    paramType Type
+    paramType TypeStr
 }
 func (p Parameter) GetName() string {return p.paramName}
-func (p Parameter) GetType() Type   {return p.paramType}
+func (p Parameter) GetType() TypeStr {return p.paramType}
 func (p Parameter) GetBlock() *FunctionBlock {return p.funcBlock}
 
+// Used to store the outputs of a FunctionBlock, while keeping it's reference.
 type DataOut struct {
-    FuncBlock *FunctionBlock
-    Values KeyValues
+    BlockID InstanceID
+    Values  ParamValues
 }
 
-type KeyValues map[string]interface{}
-type DataStream func(inputs KeyValues,
+// KeyValues and DataStreams are the types of values and functions
+// Used universally inside FunctionBlocks
+type TypeStr string
+type InstanceID int
+type ParamValues map[string]interface{}
+type ParamTypes map[string]TypeStr
+type DataStream func(inputs ParamValues,
                      outputs chan DataOut,
-                     stop chan bool
+                     stop chan bool,
                      err chan FlowError)
 
+// The primary interface of the flowchart. Allows running, has a name, and has parameters.
 type FunctionBlock interface{
-    Run DataStream
+    Run(inputs ParamValues,
+        outputs chan DataOut,
+        stop chan bool,
+        err chan FlowError)
     GetName() string
-    GetParams() []Parameter
+    GetParams() (inputs []Parameter, outputs []Parameter)
 }
+
 // A primitive function block that only
 // contains a DataStream Function to run
 type PrimitiveBlock struct {
     name    string
+    id      InstanceID
     fn      DataStream
-    inputs  map[string]Type
-    outputs map[string]Type
+    inputs  ParamTypes
+    outputs ParamTypes
 }
 
 // Returns a copy of FunctionBlock's name
 func (m PrimitiveBlock) GetName() string {return m.name}
 
 // Returns copies of all parameters in FunctionBlock
-func (m PrimitiveBlock) GetParams() (inputs []Parameter, outputs []Parameters) {
-    inputs := make([]Parameter, len(m.inputs)),
+func (m PrimitiveBlock) GetParams() (inputs []Parameter, outputs []Parameter) {
+    inputs = make([]Parameter, len(m.inputs))
     for name, t := range m.inputs {
-      inputs.append(Parameter{funcBlock: &m, paramName: name, paramType: t})
+      append(inputs, Parameter{funcBlock: &m, paramName: name, paramType: t})
     }
 
-    outputs := make([]Parameter, len(m.outputs))
+    outputs = make([]Parameter, len(m.outputs))
     for name, t := range m.outputs {
-      outputs.append(Parameter{funcBlock: &m, paramName: name, paramType: t})
+      append(outputs, Parameter{funcBlock: &m, paramName: name, paramType: t})
     }
     return
 }
 
 // Run the function
-fun (m PrimitiveBlock) Run(inputs KeyValues,
-                           outputs chan DataOut,
-                           stop chan bool,
-                           err chan FlowError) {
+func (m PrimitiveBlock) Run(inputs ParamValues,
+                            outputs chan DataOut,
+                            stop chan bool,
+                            err chan FlowError) {
     // Check types to ensure inputs are the type defined in input parameters
     if !checkTypes(inputs, m.inputs) {
       return FlowError{Ok: false, Info: "Inputs are impropper types.", Addr: &m}
@@ -83,9 +98,9 @@ fun (m PrimitiveBlock) Run(inputs KeyValues,
     for {
         select {
             case f_return := <-f_out:                 // If an output is returned
-                if checkTypes(f_return, m.outputs) {  // Check the types with output parameters
+                if checkTypes(f_return.Values, m.outputs) {  // Check the types with output parameters
                     err <- FlowError {Ok: true}       // If good, return no error
-                    outputs <- DataOut{&m, f_return}  // Along with the data
+                    outputs <- DataOut{&m, f_return.Values}  // Along with the data
                     return                            // And stop the function
                 }
             case <-stop:                              // If commanded to stop externally
@@ -102,7 +117,7 @@ fun (m PrimitiveBlock) Run(inputs KeyValues,
 
 // Initializes a FunctionBlock object with given attributes, and an empty parameter list.
 // The only way to create Methods's
-func New(name string, function DataStream, inputs map[string]Type, outputs map[string]Type) FunctionBlock {
+func New(name string, function DataStream, inputs ParamTypes, outputs ParamTypes) FunctionBlock {
     return PrimitiveBlock{name: name,
                           fn: function,
                           inputs: inputs,
@@ -111,7 +126,7 @@ func New(name string, function DataStream, inputs map[string]Type, outputs map[s
 
 // Checks if all keys in params are present in values
 // And that all values are of their appropriate types as labeled in in params
-func checkTypes(values KeyValues, params map[string]Type) (ok bool) {
+func checkTypesPrimitive(values ParamValues, params ParamTypes) (ok bool) {
     var val interface{}
     for name, kind := range params {
         val, exists = values[name]
