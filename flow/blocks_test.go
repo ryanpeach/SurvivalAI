@@ -17,7 +17,7 @@ func TestPlus(t *testing.T) {
 
     // Run block and put a timeout on the stop channel
     go plusblk.Run(ParamValues{"A": a, "B": b}, f_out, f_stop, f_err)
-    //go Timeout(f_stop, 1000)
+    go Timeout(f_stop, 100000)
     
     // Wait for output or error
     var out DataOut
@@ -31,6 +31,9 @@ func TestPlus(t *testing.T) {
                     t.Error("Plus.Run returned FlowError: ", err.Info)
                     return
                 }
+            case <-f_stop:
+                t.Error("Timeout ")
+                return
         }
     }
     
