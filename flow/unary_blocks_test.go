@@ -27,15 +27,15 @@ func testUnary(blk FunctionBlock, a, c interface{}, name string) FlowError {
                     return err
                 }
             case <-f_stop:
-                return FlowError{Ok: false, Info: "Timeout", BlockID: blk.GetID()}
+                return FlowError{Ok: false, Info: "Timeout", Addr: blk.GetAddr()}
         }
     }
     
     // Test the output
     if out.Values["OUT"] != c {
-        return FlowError{Ok: false, Info: "Returned wrong value.", BlockID: blk.GetID()}
+        return FlowError{Ok: false, Info: "Returned wrong value.", Addr: blk.GetAddr()}
     } else {
-        return FlowError{Ok: true, BlockID: blk.GetID()}
+        return FlowError{Ok: true, Addr: blk.GetAddr()}
     }
 }
 

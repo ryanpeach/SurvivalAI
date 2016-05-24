@@ -9,27 +9,38 @@ const (
   STOPPING = "STOP" // Used to declare a stopping error
 )
 
+type Address struct {
+    name string
+    id InstanceID
+}
+func (a Address) GetName() string {return a.name}
+func (a Address) GetID() string {return a.id}
+
 // Used to declare an error in the flow pipeline
 type FlowError struct{
     Ok bool
     Info string
-    BlockID InstanceID
+    Addr Address
 }
 
 // Used to represent a parameter to a FunctionBlock
 // Everything is private, as this struct is immutable
 type Parameter struct {
-    blockID   InstanceID
+    addr      Address
     paramName string
     paramType TypeStr
 }
 func (p Parameter) GetName() string {return p.paramName}
 func (p Parameter) GetType() TypeStr {return p.paramType}
-func (p Parameter) GetBlock() InstanceID {return p.blockID}
+func (p Parameter) GetBlock() Address {return p.addr}
+
+func NewParameter(name string, t TypeStr, addr Address) Parameter {
+    return Parameter{addr: addr, paramType: t, paramName: name}
+}
 
 // Used to store the outputs of a FunctionBlock, while keeping it's reference.
 type DataOut struct {
-    BlockID InstanceID
+    Addr Address
     Values  ParamValues
 }
 
@@ -39,6 +50,7 @@ type TypeStr string
 type InstanceID int
 type ParamValues map[string]interface{}
 type ParamTypes map[string]TypeStr
+type ParamMap map[string]Parameter
 type DataStream func(inputs ParamValues,
                      outputs chan DataOut,
                      stop chan bool,
@@ -50,37 +62,41 @@ type FunctionBlock interface{
         outputs chan DataOut,
         stop chan bool,
         err chan FlowError)
-    GetName() string
-    GetParams() (inputs []Parameter, outputs []Parameter)
-    GetID() InstanceID
+    GetParams() (inputs ParamMap, outputs ParamMap)
+    GetAddr() Address
 }
 
 // A primitive function block that only
 // contains a DataStream Function to run
 type PrimitiveBlock struct {
-    name    string
-    id      InstanceID
+    addr    Address
     fn      DataStream
     inputs  ParamTypes
     outputs ParamTypes
 }
 
-// Returns a copy of FunctionBlock's name
-func (m PrimitiveBlock) GetName() string {return m.name}
+// Initializes a FunctionBlock object with given attributes, and an empty parameter list.
+// The only way to create Methods's
+func NewPrimitive(name string, function DataStream, inputs ParamTypes, outputs ParamTypes) FunctionBlock {
+    return PrimitiveBlock{name: name,
+                          fn: function,
+                          inputs: inputs,
+                          outputs: outputs}
+}
 
 // Returns a copy of FunctionBlock's InstanceId
-func (m PrimitiveBlock) GetID() InstanceID {return m.id}
+func (m PrimitiveBlock) GetAddr() Address {return m.addr}
 
 // Returns copies of all parameters in FunctionBlock
-func (m PrimitiveBlock) GetParams() (inputs []Parameter, outputs []Parameter) {
-    inputs = make([]Parameter, 0, len(m.inputs))
+func (m PrimitiveBlock) GetParams() (inputs ParamMap, outputs ParamMap) {
+    inputs = make(ParamMap, 0, len(m.inputs))
     for name, t := range m.inputs {
-        inputs = append(inputs, Parameter{blockID: m.id, paramName: name, paramType: t})
+        inputs[name] = NewParameter(name, t, m.GetAddr())
     }
 
-    outputs = make([]Parameter, 0, len(m.outputs))
+    outputs = make(ParamMap, 0, len(m.outputs))
     for name, t := range m.outputs {
-        outputs = append(outputs, Parameter{blockID: m.id, paramName: name, paramType: t})
+        outputs[name] = NewParameter(name, t, m.GetAddr())
     }
     return
 }
@@ -91,8 +107,8 @@ func (m PrimitiveBlock) Run(inputs ParamValues,
                             stop chan bool,
                             err chan FlowError) {
     // Check types to ensure inputs are the type defined in input parameters
-    if !checkTypes(inputs, m.inputs) {
-        err <- FlowError{Ok: false, Info: "Inputs are impropper types.", BlockID: m.id}
+    if CheckTypes(inputs, m.inputs) {
+        err <- FlowError{Ok: false, Info: "Inputs are impropper types.", Addr: m.GetAddr()}
         return
     }
 
@@ -106,14 +122,14 @@ func (m PrimitiveBlock) Run(inputs ParamValues,
     // Wait for a stop or an output
     for {
         select {
-            case f_return := <-f_out:                 // If an output is returned
-                if checkTypes(f_return.Values, m.outputs) {  // Check the types with output parameters
-                    err <- FlowError {Ok: true}       // If good, return no error
-                    outputs <- DataOut{m.id, f_return.Values}  // Along with the data
-                    return                            // And stop the function
+            case f_return := <-f_out:                                 // If an output is returned
+                if CheckTypes(f_return.Values, m.outputs) {         // Check the types with output parameters
+                    err <- FlowError {Ok: true}                       // If good, return no error
+                    outputs <- DataOut{m.GetAddr(), f_return.Values}  // Along with the data
+                    return                                            // And stop the function
                 } else {
                     fmt.Println(f_return)
-                    err <- FlowError{Ok: false, Info: "Wrong output type.", BlockID: m.id}
+                    err <- FlowError{Ok: false, Info: "Wrong output type.", Addr: m.GetAddr()}
                     return
                 }
             case <-stop:                              // If commanded to stop externally
@@ -128,32 +144,46 @@ func (m PrimitiveBlock) Run(inputs ParamValues,
     }
 }
 
-// Initializes a FunctionBlock object with given attributes, and an empty parameter list.
-// The only way to create Methods's
-func New(name string, function DataStream, inputs ParamTypes, outputs ParamTypes) FunctionBlock {
-    return PrimitiveBlock{name: name,
-                          fn: function,
-                          inputs: inputs,
-                          outputs: outputs}
-}
-
 // Checks if all keys in params are present in values
 // And that all values are of their appropriate types as labeled in in params
-func checkTypes(values ParamValues, params ParamTypes) (ok bool) {
-    for name, typestr := range params {
-        val, _ := values[name]
-        switch val.(type) {
-            case string:
-                if typestr != "string" {return false}
-            case int:
-                if typestr != "int" && typestr != "num" {return false}
-            case float64:
-                if typestr != "float" && typestr != "num" {return false}
-            case bool:
-                if typestr != "bool" {return false}
+func CheckTypes(values ParamValues, params ParamTypes) (ok bool) {
+    for name, typestr := range params {                             // Iterate through all parameters and get their names and types
+        val, _ := values[name]                                      // Get the value of this param from values
+        if !CheckType(NewParameter(name,typestr,Address{}), val) {  // Check the type based on an empty parameter of type typestr
+            return false                                            // If it's not valid, return false
         }
     }
-    return true
+    return true                                                     // If none are valid, return true
+}
+
+func CheckType(param Parameter, val interface{}) bool {
+    t := param.GetType()
+    switch val.(type) {
+        case string:
+            if t != "string" {return false}
+        case int:
+            if t != "int" && t != "num" {return false}
+        case float64:
+            if t != "float" && t != "num" {return false}
+        case bool:
+            if t != "bool" {return false}
+        default:
+            return true
+    }
+}
+
+func BlockRun(blk FunctionBlock, f_in ParamValues, f_stop chan bool) (f_out chan DataOut,
+                                                                      f_stop chan bool,
+                                                                      f_err chan FlowError) {
+    // Initialize channels
+    f_out  := chan DataOut
+    f_stop := chan bool
+    f_err  := chan FlowError
+        
+    // Run in new goroutine
+    go blk.Run(f_in, f_out, f_stop, f_err)
+        
+    return f_out, f_stop, f_err
 }
 
 func Timeout(stop chan bool, sleeptime int) {

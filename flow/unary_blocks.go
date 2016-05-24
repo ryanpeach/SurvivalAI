@@ -13,7 +13,8 @@ func opUnary(id InstanceID, inT TypeStr, outT TypeStr, outname string, opfunc fu
                      err chan FlowError) {
         data := make(ParamValues)
         opfunc(inputs, &data)
-        out := DataOut{BlockID: id, Values: data}
+        addr := Address{id: id, name: outname}
+        out := DataOut{Addr: addr, Values: data}
         outputs <- out
         return
     }

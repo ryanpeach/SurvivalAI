@@ -27,15 +27,15 @@ func testBinary(blk FunctionBlock, a, b, c interface{}, name string) FlowError {
                     return err
                 }
             case <-f_stop:
-                return FlowError{Ok: false, Info: "Timeout", BlockID: blk.GetID()}
+                return FlowError{Ok: false, Info: "Timeout", Addr: blk.GetAddr()}
         }
     }
     
     // Test the output
     if out.Values["OUT"] != c {
-        return FlowError{Ok: false, Info: "Returned wrong value.", BlockID: blk.GetID()}
+        return FlowError{Ok: false, Info: "Returned wrong value.", Addr: blk.GetAddr()}
     } else {
-        return FlowError{Ok: true, BlockID: blk.GetID()}
+        return FlowError{Ok: true, Addr: blk.GetAddr()}
     }
 }
 
@@ -177,28 +177,6 @@ func TestXor(t *testing.T) {
         t.Error(err.Info)
     }
 }
-func TestNand(t *testing.T) {
-    name := "logical_nand"
-    fmt.Println("Testing ", name, "...")
-    blk := Nand(0)
-    a, b := true, false
-    c := !(a && b)
-    err := testBinary(blk, a, b, c, name)
-    if !err.Ok {
-        t.Error(err.Info)
-    }
-}
-func TestNor(t *testing.T) {
-    name := "logical_nor"
-    fmt.Println("Testing ", name, "...")
-    blk := Nor(0)
-    a, b := true, false
-    c := !(a || b)
-    err := testBinary(blk, a, b, c, name)
-    if !err.Ok {
-        t.Error(err.Info)
-    }
-}
 
 // Comparison
 func TestGreater(t *testing.T) {
@@ -223,45 +201,13 @@ func TestLesser(t *testing.T) {
         t.Error(err.Info)
     }
 }
-func TestGreaterEquals(t *testing.T) {
-    name := "greater_equals"
-    fmt.Println("Testing ", name, "...")
-    blk := Greater(0)
-    a, b := 5, 2
-    c := 5 >= 2
-    err := testBinary(blk, a, b, c, name)
-    if !err.Ok {
-        t.Error(err.Info)
-    }
-}
-func TestLesserEquals(t *testing.T) {
-    name := "lesser_equals"
-    fmt.Println("Testing ", name, "...")
-    blk := Lesser(0)
-    a, b := 5, 2
-    c := 5 <= 2
-    err := testBinary(blk, a, b, c, name)
-    if !err.Ok {
-        t.Error(err.Info)
-    }
-}
+
 func TestEquals(t *testing.T) {
     name := "equal_to"
     fmt.Println("Testing ", name, "...")
     blk := Greater(0)
     a, b := 5, 2
     c := 5 > 2
-    err := testBinary(blk, a, b, c, name)
-    if !err.Ok {
-        t.Error(err.Info)
-    }
-}
-func TestNotEquals(t *testing.T) {
-    name := "not_equal_to"
-    fmt.Println("Testing ", name, "...")
-    blk := NotEquals(0)
-    a, b := 5, 2
-    c := 5 != 2
     err := testBinary(blk, a, b, c, name)
     if !err.Ok {
         t.Error(err.Info)
