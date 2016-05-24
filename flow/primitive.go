@@ -1,6 +1,9 @@
 package flow
 
-import "fmt"
+import (
+    "fmt"
+    "time"
+)
 
 const (
   STOPPING = "STOP" // Used to declare a stopping error
@@ -143,9 +146,9 @@ func checkTypes(values ParamValues, params ParamTypes) (ok bool) {
             case string:
                 if typestr != "string" {return false}
             case int:
-                if typestr != "int" {return false}
+                if typestr != "int" && typestr != "num" {return false}
             case float64:
-                if typestr != "float" {return false}
+                if typestr != "float" && typestr != "num" {return false}
             case bool:
                 if typestr != "bool" {return false}
         }
@@ -156,4 +159,15 @@ func checkTypes(values ParamValues, params ParamTypes) (ok bool) {
 func Timeout(stop chan bool, sleeptime int) {
     time.Sleep(time.Duration(sleeptime))
     stop <- true
+}
+
+func toNum(n interface{}) float64 {
+    switch n.(type) {
+        case int:
+            return float64(n.(int))
+        case float64:
+            return n.(float64)
+        default:
+            panic("Wrong Type in toNum")
+    }
 }

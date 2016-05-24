@@ -199,3 +199,71 @@ func TestNor(t *testing.T) {
         t.Error(err.Info)
     }
 }
+
+// Comparison
+func TestGreater(t *testing.T) {
+    name := "greater_than"
+    fmt.Println("Testing ", name, "...")
+    blk := Greater(0)
+    a, b := 5, 2
+    c := 5 > 2
+    err := testBinary(blk, a, b, c, name)
+    if !err.Ok {
+        t.Error(err.Info)
+    }
+}
+func TestLesser(t *testing.T) {
+    name := "lesser_than"
+    fmt.Println("Testing ", name, "...")
+    blk := Lesser(0)
+    a, b := 5, 2
+    c := 5 < 2
+    err := testBinary(blk, a, b, c, name)
+    if !err.Ok {
+        t.Error(err.Info)
+    }
+}
+func TestGreaterEquals(t *testing.T) {
+    name := "greater_equals"
+    fmt.Println("Testing ", name, "...")
+    blk := Greater(0)
+    a, b := 5, 2
+    c := 5 >= 2
+    err := testBinary(blk, a, b, c, name)
+    if !err.Ok {
+        t.Error(err.Info)
+    }
+}
+func TestLesserEquals(t *testing.T) {
+    name := "lesser_equals"
+    fmt.Println("Testing ", name, "...")
+    blk := Lesser(0)
+    a, b := 5, 2
+    c := 5 <= 2
+    err := testBinary(blk, a, b, c, name)
+    if !err.Ok {
+        t.Error(err.Info)
+    }
+}
+func TestEquals(t *testing.T) {
+    name := "equal_to"
+    fmt.Println("Testing ", name, "...")
+    blk := Greater(0)
+    a, b := 5, 2
+    c := 5 > 2
+    err := testBinary(blk, a, b, c, name)
+    if !err.Ok {
+        t.Error(err.Info)
+    }
+}
+func TestNotEquals(t *testing.T) {
+    name := "not_equal_to"
+    fmt.Println("Testing ", name, "...")
+    blk := NotEquals(0)
+    a, b := 5, 2
+    c := 5 != 2
+    err := testBinary(blk, a, b, c, name)
+    if !err.Ok {
+        t.Error(err.Info)
+    }
+}
