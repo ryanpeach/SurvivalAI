@@ -1,4 +1,4 @@
-package World3D
+package world3D
 
 type Block struct {
     id uint

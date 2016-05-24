@@ -49,6 +49,7 @@ type FunctionBlock interface{
         err chan FlowError)
     GetName() string
     GetParams() (inputs []Parameter, outputs []Parameter)
+    GetID() InstanceID
 }
 
 // A primitive function block that only
@@ -63,6 +64,9 @@ type PrimitiveBlock struct {
 
 // Returns a copy of FunctionBlock's name
 func (m PrimitiveBlock) GetName() string {return m.name}
+
+// Returns a copy of FunctionBlock's InstanceId
+func (m PrimitiveBlock) GetID() InstanceID {return m.id}
 
 // Returns copies of all parameters in FunctionBlock
 func (m PrimitiveBlock) GetParams() (inputs []Parameter, outputs []Parameter) {
@@ -140,9 +144,16 @@ func checkTypes(values ParamValues, params ParamTypes) (ok bool) {
                 if typestr != "string" {return false}
             case int:
                 if typestr != "int" {return false}
-            case float32:
+            case float64:
                 if typestr != "float" {return false}
+            case bool:
+                if typestr != "bool" {return false}
         }
     }
     return true
+}
+
+func Timeout(stop chan bool, sleeptime int) {
+    time.Sleep(time.Duration(sleeptime))
+    stop <- true
 }
