@@ -1,4 +1,9 @@
+# Python Imports
+from copy import copy
+
+# Library Imports
 import numpy as np
+from scipy.ndimage.interpolation import rotate as nd_rot90
 
 class Blueprint(object):
     """ The immutable 3D container for any space. """
@@ -47,7 +52,6 @@ class Region(object):
         else:
             self.L = np.array(L)
         
-
     # Simple Modifier Methods
     def move(self, dX):
         """ Move relative to current x0. """
@@ -57,9 +61,9 @@ class Region(object):
         """ Place absolute location. """
         self.X0 = X
         
-    def flatten(self, l = 0.):
+    def flatten(self, l = 0):
         """ Flattens the layer array to a single value. """
-        self.L = np.ones(self.L.shape) * l
+        self.L = np.ones(self.L.shape, dtype='int') * int(l)
         
     # Combination Methods
     def __add__(self, other):
@@ -109,38 +113,25 @@ class Region(object):
     def rotate(self, r):
         """ Rotate the region increments of 90 degrees about each axis.
             Params: r: A size 3 vector containing # 90 degree increments to rotate about each axis of rotation.
-            Returns new Region.
-            FIXME: This method is untested and likely does not effect the right axes. """
-        R, V, L = self.R.copy(), self.L.copy(), self.V.copy()                   # Get a copy of all object info
-        R, V, L = np.rot90(R, r[0]), np.rot90(V, r[0]), np.rot90(L, r[0])       # Rotate each by first value
-        R, V, L = np.swapaxes(R,0,2), np.swapaxes(V,0,2), np.swapaxes(L,0,2)    # Roll axes
-        R, V, L = np.swapaxes(R,1,2), np.swapaxes(V,1,2), np.swapaxes(L,1,2)    # --
-        R, V, L = np.rot90(R, r[1]), np.rot90(V, r[1]), np.rot90(L, r[1])       # Rotate each by second value
-        R, V, L = np.swapaxes(R,0,2), np.swapaxes(V,0,2), np.swapaxes(L,0,2)    # Roll axes
-        R, V, L = np.swapaxes(R,1,2), np.swapaxes(V,1,2), np.swapaxes(L,1,2)    # --
-        R, V, L = np.rot90(R, r[2]), np.rot90(V, r[2]), np.rot90(L, r[2])       # Rotate each by third value
-        R, V, L = np.swapaxes(R,0,2), np.swapaxes(V,0,2), np.swapaxes(L,0,2)    # Roll axes back to original
-        R, V, L = np.swapaxes(R,1,2), np.swapaxes(V,1,2), np.swapaxes(L,1,2)    # --
+            Returns new Region. """
+            
+        # Rotate around 1st axis
+        V = nd_rot90(self.V, int(r[0]*90), axes=(0,1))
+        R = nd_rot90(self.R, int(r[0]*90), axes=(0,1))
+        L = nd_rot90(self.L, int(r[0]*90), axes=(0,1))
         
-        return Region(V = V, x0 = self.x0, R = R, L = L)                        # Return new Region
+        # Rotate around 2nd axis
+        V = nd_rot90(V, int(r[1]*90), axes=(1,2))
+        R = nd_rot90(R, int(r[1]*90), axes=(1,2))
+        L = nd_rot90(L, int(r[1]*90), axes=(1,2))
         
-    def flip(self, r):
-        """ Flips the array about one of the axes in r.
-            Params: r is a size 3 iterable of type bool.
-            Returns a new Region.
-            FIXME: This method is untested and likely does not effect the right axes. """
-        assert(not ((r[0] and r[1]) or (r[1] and r[2]) or (r[2] and r[0])), "Only one index may be true")
-        R, V, L = self.R.copy(), self.L.copy(), self.V.copy()                   # Get a copy of all object info
-        if r[0]:                                                                # If vert is selected
-            R, V, L = np.flipud(R), np.flipud(V), np.flipud(L)                  # Flip each up and down
-        elif r[1]:                                                              # Otherwise
-            R, V, L = np.fliplr(R), np.fliplr(V), np.fliplr(L)                  # Flip each left and right
-        elif r[2]:
-            R, V, L = np.swapaxes(R,0,1), np.swapaxes(V,0,1), np.swapaxes(L,0,1)# Roll axes
-            R, V, L = np.fliplr(R), np.fliplr(V), np.fliplr(L)                  # Flip each left and right
-            R, V, L = np.swapaxes(R,1,0), np.swapaxes(V,1,0), np.swapaxes(L,1,0)# --
-        return Region(V = V, x0 = self.x0, R = R, L = L)                        # Return new Region
-    
+        # Rotate around 3rd axis
+        V = nd_rot90(V, int(r[2]*90), axes=(2,0))
+        R = nd_rot90(R, int(r[2]*90), axes=(2,0))
+        L = nd_rot90(L, int(r[2]*90), axes=(2,0))
+        
+        return Region(V = V, R = R, L = L, x0 = self.x0)                        # Return new Region, same origin
+        
     def draw(self):
         # Source http://matplotlib.org/mpl_toolkits/mplot3d/tutorial.html
         import matplotlib.pyplot as plt
