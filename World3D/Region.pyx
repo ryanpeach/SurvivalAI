@@ -1,16 +1,22 @@
 import pyximport; pyximport.install(pyimport = True)
+from libcpp cimport bool
+
 import numpy as np
 cimport numpy as np
 
-cdef np.ndarray toV3(np.ndarray V) except *:
-    if V.shape == (4,1) or V.shape == (3,1):
+cdef dict LABEL_LOOKUP = {}
+cdef dict COLOR_LOOKUP = {}
+
+cdef np.ndarray toV3(np.ndarray V):
+    cdef int dims = V.ndim
+    if dims==2 and (V.shape[0] == 4 or V.shape[0] == 3) and V.shape[1] == 1:
         return np.array([V[0,0],V[1,0],V[2,0]], dtype=V.dtype)
-    if V.shape == (4):
+    elif dims==1 and V.shape[0] == 4:
         return V[:3]
-    if V.shape == (3):
+    elif dims==1 and V.shape[0] == 3:
         return V
     else:
-        raise Exception("Vector not a known size.")
+        raise Exception("Input not the right shape.")
         
 cdef np.ndarray to4x1(np.ndarray V, float fill_v = 0.):
     V = toV3(V)
@@ -25,8 +31,8 @@ cdef np.ndarray unitV(np.ndarray V):
     return V / np.linalg.norm(V)
     
 cdef np.ndarray rotM(float ax, float ay, float az):
-    cdef float c1, c2, c3 = np.cos(ax), np.cos(ay), np.cos(az)
-    cdef float s1, s2, s3 = np.sin(ax), np.sin(ay), np.sin(az)
+    cdef float c1 = np.cos(ax), c2 = np.cos(ay), c3 = np.cos(az)
+    cdef float s1 = np.sin(ax), s2 = np.sin(ay), s3 = np.sin(az)
     cdef np.ndarray R1 = np.array([[1,0,0,0]   ,[0,c1,s1,0],[0,s1,c1,0] ,[0,0,0,1]], dtype="float")
     cdef np.ndarray R2 = np.array([[c2,0,s2,0] ,[0,1,0,0]  ,[-s2,0,c2,0],[0,0,0,1]], dtype="float")
     cdef np.ndarray R3 = np.array([[c3,-s3,0,0],[s3,c3,0,0],[0,0,1,0]   ,[0,0,0,1]], dtype="float")
@@ -37,107 +43,145 @@ cdef np.ndarray transM(int dx, int dy, int dz):
 
 cdef np.ndarray forward(int a, int b, int c, np.ndarray M, np.ndarray C):
     cdef np.ndarray cV = to4x1(C,0)
-    cdef np.ndarray V = to4x1([a,b,c],1.) - cV
+    cdef np.ndarray V = to4x1(np.array([a,b,c]),1.) - cV
     cdef np.ndarray abcV = np.dot(M, cV)
     return toV3(abcV)
     
 cdef np.ndarray inverse(int d, int e, int f, np.ndarray M, np.ndarray C):
     cdef np.ndarray cV = to4x1(C,0)
-    cdef np.ndarray defV = to4x1([d,e,f],1.)
+    cdef np.ndarray defV = to4x1(np.array([d,e,f]), 1.)
     cdef np.ndarray V = np.dot(np.inv(M), defV)
     cdef np.ndarray abcV = V + cV
     return toV3(abcV)
+    
+# Create Vectorized combination algorithm
+cdef float layer_select(Region r0, Region r1, int x, int y, int z, np.ndarray M0, np.ndarray M1, float fill = 0.):
+    cdef np.ndarray I0 = r0.xyz_ijk(x, y, z)
+    cdef int i0 = I0[0], j0 = I0[1], k0 = I0[2]
+    cdef int l0 = r0.layerM[i0,j0,k0]
+    cdef bool v0 = r0.valid(i0,j0,k0)
+    cdef np.ndarray I1 = r1.xyz_ijk(x, y, z)
+    cdef int i1 = I1[0], j1 = I1[1], k1 = I1[2]
+    cdef int l1 = r1.layerM[i1,j1,k1]
+    cdef bool v1 = r1.valid(i1,j1,k1)
+    if v0 and v1:
+        if l1 > l0:
+            return M1[i1,j1,k1]
+        else:
+            return M0[i0,j0,k0]
+    elif v0:
+        return M0[i0,j0,k0]
+    elif v1:
+        return M1[i1,j1,k1]
+    else:
+        return fill
         
-cdef class Region():
-    cdef __init__(self, np.ndarray spaceM, np.ndarray angleM, np.ndarray layerM = None,
-                  np.ndarray location_xyz = np.array([0,0,0]),
-                  np.ndarray rotation_angs = np.array([0,0,0]),
-                  np.ndarray rotation_ijk = None) except *:
+cdef class Region:
+
+    cdef np.ndarray spaceM, angleM, layerM
+    cdef np.ndarray shape, center_ijk, center_uvw, center_xyz
+    cdef np.ndarray U, X
+    
+    def __init__(self, np.ndarray spaceM, np.ndarray angleM, np.ndarray layerM = None, \
+                  np.ndarray location_xyz = np.array([0,0,0]), \
+                  np.ndarray rotation_angs = np.array([0,0,0]), \
+                  np.ndarray rotation_ijk = None):
         # Set rules
-        assert(spaceM.shape == angleM.shape[:3])
+        assert(spaceM.shape[0] == angleM.shape[0] and \
+               spaceM.shape[1] == angleM.shape[1] and \
+               spaceM.shape[2] == angleM.shape[2])
 
         # Set spacial data
-        cdef np.ndarray self.spaceM = np.array(spaceM, dtype="uint")
-        cdef np.ndarray self.angleM = np.array(angleM, dtype="float64")
-        cdef np.ndarray self.layerM = None
+        self.spaceM = np.array(spaceM, dtype="uint")
+        self.angleM = np.array(angleM, dtype="float64")
+        self.layerM = None
         if layerM.shape == angleM.shape:
             self.layerM = np.array(layerM, dtype="int")
         else:
             self.flatten(layerM)
             
         # Set info
-        cdef np.ndarray self.shape      = np.array(layerM.shape)
-        cdef np.ndarray self.center_ijk = self.shape/2
-        cdef np.ndarray self.center_uvw = np.array([0,0,0])
+        cdef np.npy_intp * shape = spaceM.shape  #FIXME: Check this works...
+        cdef int di = shape[0], dj = shape[1], dk = shape[2]
+        self.shape      = np.array([di,dj,dk])
+        self.center_ijk = self.shape/2
+        self.center_uvw = np.array([0,0,0])
     
         # Set Conversion Matricies
-        cdef np.ndarray self.U = np.eye(4)
-        cdef np.ndarray self.X = np.eye(4)
+        self.U = np.eye(4)
+        self.X = np.eye(4)
         
         # Move and rotate to initial points
         self.place(location_xyz)
         self.rotate(rotation_angs, rotation_ijk)
     
-    cdef void rotate(self, np.ndarray rotation_ang, np.ndarray vector_ijk = None) except *:
+    cpdef rotate(self, np.ndarray rotation_ang, np.ndarray vector_ijk = None):
         if vector_ijk == None:
             vector_ijk = self.center_ijk
         vector_uvw = self.ijk_uvw(*vector_ijk)
-        cdef int u, v, w = vector_uvw
+        cdef int rx = rotation_ang[0], ry = rotation_ang[1], rz = rotation_ang[2]
+        cdef int u = vector_uvw[0], v = vector_uvw[1], w = vector_uvw[2]
         cdef np.ndarray T1 = transM(u, v, w)                                    # Translate the the new point
-        cdef np.ndarray R = rotM(*rotation_angs)                                # Rotate axes
+        cdef np.ndarray R = rotM(rx, ry, rz)                                    # Rotate axes
         cdef np.ndarray V2 = np.dot(R, to4x1(-vector_uvw, 1))                   # Invert vector and rotate
-        cdef np.ndarray T2 = transM(*toV3(V2))                                  # Translate back to original point
+        cdef np.ndarray vR = toV3(V2)                                           # Convert to a len==3 array
+        cdef int vrx = vR[0], vry = vR[1], vrz = vR[2]
+        cdef np.ndarray T2 = transM(vrx, vry, vrz)                              # Translate back to original point
         self.U = np.dot(T2, np.dot(R, np.dot(T1, self.U)))                      # Execute
-        self.center_uvw = toV3(np.dot(self.U, toV4x1(self.center_ijk)))         # Update Center
-        assert(np.isclose(self.center_uvw, [0,0,0], rtol=0.4999, atol=0.0)      # center_uvw should always be close to 0.0
+        self.center_uvw = toV3(np.dot(self.U, to4x1(self.center_ijk)))          # Update Center
+        assert(np.isclose(self.center_uvw, [0,0,0], rtol=0.4999, atol=0.0))     # center_uvw should always be close to 0.0
         
-    cdef void move(self, np.ndarray vector_xyz):
-        cdef np.ndarray T = transM(*vector_xyz)
+    cpdef move(self, np.ndarray vector_xyz):
+        cdef int x = vector_xyz[0], y = vector_xyz[1], z = vector_xyz[2]
+        cdef np.ndarray T = transM(x, y, z)
         self.X = np.dot(T, self.X)               # Translate to the new point
         self.center_xyz += np.array(vector_xyz)  # For ease of access
         
-    cdef void place(self, np.ndarray location_xyz):
-        cdef np.ndarray T = transM(*location_xyz)
+    cpdef place(self, np.ndarray location_xyz):
+        cdef int x = location_xyz[0], y = location_xyz[1], z = location_xyz[2]
+        cdef np.ndarray T = transM(x, y, z)
         self.X = T                                # Set X to the new point
         self.center_xyz = np.array(location_xyz)  # For ease of access
         
-    cdef void flatten(self, int l = 0):
+    cpdef flatten(self, int l = 0):
          """ Flattens the layer array to a single value. """
-         self.layerM = np.ones(self.shape, dtype="int") * int(l)
+         self.layerM = np.full(self.shape, l, dtype="int")
     
-    cdef np.ndarray ijk_uvw(self, int i, int j, int k):
+    cpdef np.ndarray ijk_uvw(self, int i, int j, int k):
         return forward(i, j, k, self.U, self.center_ijk)
         
-    cdef np.ndarray uvw_ijk(self, int u, int v, int w):
+    cpdef np.ndarray uvw_ijk(self, int u, int v, int w):
         return inverse(u, v, w, self.U, self.center_ijk)
         
-    cdef np.ndarray uvw_xyz(self, int u, int v, int w):
+    cpdef np.ndarray uvw_xyz(self, int u, int v, int w):
         return forward(u, v, w, self.X, self.center_uvw)
         
-    cdef np.ndarray xyz_uvw(self, int x, int y, int z):
+    cpdef np.ndarray xyz_uvw(self, int x, int y, int z):
         return inverse(x, y, z, self.X, self.center_uvw)
         
-    cdef np.ndarray ijk_xyz(self, int i, int j, int k):
-        cdef int u, v, w = self.ijk_uvw(i, j, k)
+    cpdef np.ndarray ijk_xyz(self, int i, int j, int k):
+        cdef np.ndarray U = self.ijk_uvw(i, j, k)
+        cdef int u = U[0], v = U[1], w = U[2]
         return self.uvw_xyz(u, v, w)
     
-    cdef np.ndarray xyz_ijk(self, int x, int y, int z):
-        cdef int i, j, k = self.xyz_uvw(x, y, z)
+    cpdef np.ndarray xyz_ijk(self, int x, int y, int z):
+        cdef np.ndarray I = self.xyz_uvw(x, y, z)
+        cdef int i = I[0], j = I[1], k = I[2]
         return self.uvw_ijk(i, j, k)
 
-    cdef tuple getCorners(self):
-        cdef int si, sj, sk = self.shape
-        cdef np.ndarray I = [0.,si,si,0.,0.,si,si,0.]
-        cdef np.ndarray J = [sj,sj,sj,sj,0.,0.,0.,0.]
-        cdef np.ndarray K = [sk,sk,0.,0.,sk,sk,0.,0.]
-        cdef np.ndarray X, Y, Z = np.vectorize(ijk_xyz)(I, J, K)
-        return X, Y, Z
+    cpdef tuple getCorners(self):
+        cdef int si = self.shape[0], sj = self.shape[1], sk = self.shape[2]
+        cdef np.ndarray I = np.array([0.,si,si,0.,0.,si,si,0.])
+        cdef np.ndarray J = np.array([sj,sj,sj,sj,0.,0.,0.,0.])
+        cdef np.ndarray K = np.array([sk,sk,0.,0.,sk,sk,0.,0.])
+        cdef tuple out = np.vectorize(self.ijk_xyz)(I, J, K)
+        return out
         
-    cdef valid(self, int i, int j, int k):
-        cdef int si, sj, sk = self.shape
+    cpdef valid(self, int i, int j, int k):
+        cdef int si = self.shape[0], sj = self.shape[1], sk = self.shape[2]
         return i >= 0 and j >= 0 and k >= 0 and i < si and j < sj and k < sk
     
-    cdef np.ndarray getAngle():
+    cpdef np.ndarray getAngle(self):
         cdef np.ndarray Vu = np.array([1.,0.,0.])
         cdef np.ndarray Vv = np.array([0.,1.,0.])
         cdef np.ndarray Vw = np.array([0.,0.,1.])
@@ -146,77 +190,57 @@ cdef class Region():
         cdef np.ndarray aw = np.dot(unitV(np.dot(self.U, Vw)), Vw)
         return np.array([au, av, aw])
         
-    cdef np.ndarray getAngleM():
-        cdef np.ndarray angles = getAngle().reshape((1,1,1,3))
+    cpdef np.ndarray getAngleM(self):
+        cdef np.ndarray angles = self.getAngle().reshape((1,1,1,3))
         return np.copy(self.angleM) + angles
         
-    cdef Region __add__(self, Region other):
+    cpdef Region add(self, Region other):
         # Find the new bounds of the new arrays and the new location_xyz
-        cdef np.ndarray cX0, cY0, cZ0 = self.getCorners()
-        cdef np.ndarray cX1, cY1, cZ1 = other.getCorners()
-        cdef np.ndarray cX,  cY,  cZ  = np.concatenate(cX0,cX1), np.concatenate(cY0,cY1), np.concatenate(cZ0,cZ1)
-        cdef int x0, y0, z0 = np.min(cX), np.min(cY), np.min(cZ)
-        cdef int x1, y1, z1 = np.max(cX), np.max(cY), np.max(cZ)
+        cdef np.ndarray cX0 = self.getCorners()
+        cdef np.ndarray cX1 = other.getCorners()
+        cdef np.ndarray cX = np.concatenate(cX0[0],cX1[0]), cY = np.concatenate(cX0[1],cX1[1]), cZ = np.concatenate(cX0[2],cX1[2])
+        cdef int x0 = np.min(cX), y0 = np.min(cY), z0 = np.min(cZ)
+        cdef int x1 = np.max(cX), y1 = np.max(cY), z1 = np.max(cZ)
         cdef np.ndarray location_xyz = self.center_xyz/2. + other.center_xyz/2.
+        cdef int di =  self.shape[0], dj =  self.shape[1], dk = self.shape[2]
         
-        # Create Vectorized combination algorithm
-        cdef float select(int x, int y, int z, np.ndarray M0, np.ndarray M1, float fill = 0.):
-            cdef int i0, int j0, int k0 = self.xyz_ijk(x, y, z)
-            cdef int l0 = self.layerM[i0,j0,k0]
-            cdef bool v0 = self.valid(i0,j0,k0)
-            cdef int i1, int j1, int k1 = other.xyz_ijk(x, y, z)
-            cdef int l1 = other.layerM[i1,j1,k1]
-            cdef bool v1 = other.valid(i1,j1,k1)
-            if v0 and v1:
-                if l1 > l0:
-                    return M1[i1,j1,k1]
-                else:
-                    return M0[i0,j0,k0]
-            elif v0:
-                return M0[i0,j0,k0]
-            elif v1:
-                return M1[i1,j1,k1]
-            else:
-                return fill
+        cdef np.ndarray spaceM = np.empty((di, dj, dk), dtype="uint")
+        cdef np.ndarray layerM = np.empty((di, dj, dk), dtype="int")
+        cdef np.ndarray angleM = np.empty((di, dj, dk, 3), dtype="float64")
         
-        spaceM = np.empty((dx, dy, dz), dtype="uint")
-        layerM = np.empty((dx, dy, dz), dtype="int")
-        angleM = np.empty((dx, dy, dz, 3), dtype="float64")
-        
-        cdef np.ndarray A0, A1 = self.getAngleM(), other.getAngleM()
+        cdef np.ndarray A0 = self.getAngleM(), A1 = other.getAngleM()
         cdef int x, y, z, i, j, k
-        for i in np.arange(dx):
+        for i in 0 <= i < di:
             x = i + x0
-            for j in np.arange(dy):
+            for j in 0 <= j < dj:
                 y = j + y0
-                for k in np.arange(dz):
-                    z = k + k0
-                    spaceM[i,j,k] = select(x, y, z, self.spaceM, other.spaceM)
-                    layerM[i,j,k] = select(x, y, z, self.layerM, other.layerM)
-                    angleM[i,j,k,:] = select(x, y, z, A0, A1, 0.)
+                for k in 0 <= k < dk:
+                    z = k + z0
+                    spaceM[i,j,k]   = layer_select(self, other, x, y, z, self.spaceM, other.spaceM)
+                    layerM[i,j,k]   = layer_select(self, other, x, y, z, self.layerM, other.layerM)
+                    angleM[i,j,k,:] = layer_select(self, other, x, y, z, A0, A1, 0.)
         
         return Region(spaceM, angleM, layerM, location_xyz)
     
-    cdef Region __copy__(self):
+    cpdef Region copy(self):
         return Region(V = self.V.copy(), R = self.R.copy(), L = self.L.copy(), x0 = tuple(self.x0))
     
-#def draw(self, coord_ijk = True):
-#    # Source http://matplotlib.org/mpl_toolkits/mplot3d/tutorial.html
-#    import matplotlib.pyplot as plt
-#    from mpl_toolkits.mplot3d import Axes3D
-#    fig = plt.figure()
-#    ax = fig.add_subplot(111, projection='3d')
-#    
-#    out, names = [], []
-#    for blkid in np.unique(self.shapeM):
-#        I, J, K = np.where(self.shapeM == blkid)
-#        if not coord_ijk:
-#            
-#        out.append(ax.scatter(X, Y, Z, zdir='z', s=20, label = LABEL_LOOKUP[blkid], depthshade=True))
-#        names.append(LABEL_LOOKUP[v])
-#        
-#    ax.legend(handles = out, labels = names)
-#    plt.show()
+    def draw(self, coord_ijk = True):
+        # Source http://matplotlib.org/mpl_toolkits/mplot3d/tutorial.html
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        
+        out, names = [], []
+        for blkid in np.unique(self.shapeM):
+            I, J, K = np.where(self.shapeM == blkid)
+            if not coord_ijk:
+                out.append(ax.scatter(I, J, K, zdir='z', s=20, label = LABEL_LOOKUP[blkid], depthshade=True))
+                names.append(LABEL_LOOKUP[blkid])
+            
+        ax.legend(handles = out, labels = names)
+        plt.show()
         
     
         
